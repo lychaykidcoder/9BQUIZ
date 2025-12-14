@@ -1,14 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Firebase Configuration ---
     const firebaseConfig = {
-         apiKey: "AIzaSyDX7ZXfnb-Fqc1AWpO7pAxbdcwR-MgauSA",
-         authDomain: "ngs-9b-quiz.firebaseapp.com",
-         databaseURL: "https://ngs-9b-quiz-default-rtdb.firebaseio.com",
-         projectId: "ngs-9b-quiz",
-         storageBucket: "ngs-9b-quiz.firebasestorage.app",
-         messagingSenderId: "367662671359",
-         appId: "1:367662671359:web:266d5cd588bafb7af1b3ca",
-    };
+    apiKey: "AIzaSyCO67n4wTYlvGcwhC99hWIsPxEujbR9dyc",
+    authDomain: "web-quiz-9b.firebaseapp.com",
+    databaseURL: "https://web-quiz-9b-default-rtdb.firebaseio.com",
+    projectId: "web-quiz-9b",
+    storageBucket: "web-quiz-9b.firebasestorage.app",
+    messagingSenderId: "860179722088",
+    appId: "1:860179722088:web:1b60bcf91376062fc570dd",
+};
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const storage = firebase.storage();
@@ -595,4 +595,5 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Start the Application ---
     init();
+
 });
