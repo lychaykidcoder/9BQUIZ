@@ -9,59 +9,111 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@400;700&display=swap" rel="stylesheet">
     <link rel="icon" type="image/png" href="9B-quiz-logo.png">
+    <script src="https://js.puter.com/v2/"></script>
 </head>
 <body>
+    <div class="stars-bg-container">
+        <div id="stars"></div><div id="stars2"></div><div id="stars3"></div>
+    </div>
+
     <div id="modal-overlay" class="modal-overlay" style="display: none;">
         <div class="modal-content"><h3 id="modal-title"></h3><div id="modal-body"></div></div>
     </div>
     <div id="global-notification" class="global-notification" style="display: none;"></div>
 
     <div id="app-container">
-        <!-- Views: Login, Signup, Home, Admin -->
-        <div id="login-view" class="view"><div class="form-container"><img src="9B-quiz-logo.png" alt="Quiz Logo" class="login-logo"><h1>Quiz 9B</h1><h2>ចូលគណនី</h2><input type="email" id="login-email" placeholder="អ៊ីមែល"><input type="password" id="login-password" placeholder="ពាក្យសម្ងាត់"><button id="login-btn">ចូលគណនី</button><button id="go-to-signup-btn" class="secondary-btn">បង្កើតគណនីថ្មី</button><a href="#" class="back-to-home-link">ត្រលប់ទៅទំព័រដើមវិញ</a></div></div>
-        <div id="signup-view" class="view"><div class="form-container"><img src="9B-quiz-logo.png" alt="Quiz Logo" class="login-logo"><h2>បង្កើតគណនី</h2><input type="text" id="signup-username" placeholder="ឈ្មោះអ្នកប្រើប្រាស់"><input type="email" id="signup-email" placeholder="អ៊ីមែល"><input type="password" id="signup-password" placeholder="ពាក្យសម្ងាត់"><button id="signup-btn">ចុះឈ្មោះ</button><a href="#" id="back-to-login-link">មានគណនីហើយ? ចូលនៅទីនេះ</a></div></div>
-        <div id="home-view" class="view"><header><div class="logo-container"><img src="9B-quiz-logo.png" alt="Quiz Logo" class="header-logo"><h2>Quiz 9B</h2></div><div id="user-actions" class="user-info"></div></header><main id="home-main"><h2>បន្ទប់ដែលអាចចូលរួមបាន</h2><div id="rooms-list"><p>កំពុងស្វែងរកបន្ទប់...</p></div></main></div>
+        <div id="login-view" class="view">
+            <div class="form-container">
+                <img src="9B-quiz-logo.png" alt="Quiz Logo" class="login-logo" onerror="this.style.display='none'">
+                <h1>Quiz 9B</h1><h2>ចូលគណនី</h2>
+                <input type="email" id="login-email" placeholder="អ៊ីមែល">
+                <input type="password" id="login-password" placeholder="ពាក្យសម្ងាត់">
+                <button id="login-btn" class="magic-btn">ចូលគណនី</button>
+                <button id="go-to-signup-btn" class="secondary-btn" style="margin-top:10px;">បង្កើតគណនីថ្មី</button>
+                <a href="#" class="back-to-home-link" style="margin-top:15px; display:block;">ចូលជាភ្ញៀវ (Guest)</a>
+            </div>
+        </div>
+
+        <div id="signup-view" class="view">
+            <div class="form-container">
+                <img src="9B-quiz-logo.png" alt="Quiz Logo" class="login-logo" onerror="this.style.display='none'">
+                <h2>បង្កើតគណនី</h2>
+                <input type="text" id="signup-username" placeholder="ឈ្មោះអ្នកប្រើប្រាស់">
+                <input type="email" id="signup-email" placeholder="អ៊ីមែល">
+                <input type="password" id="signup-password" placeholder="ពាក្យសម្ងាត់">
+                <button id="signup-btn" class="magic-btn">ចុះឈ្មោះ</button>
+                <a href="#" id="back-to-login-link" style="margin-top:15px; display:block;">មានគណនីហើយ? ចូលនៅទីនេះ</a>
+            </div>
+        </div>
+
+        <div id="home-view" class="view">
+            <header>
+                <div class="logo-container"><h2>Quiz 9B</h2></div>
+                <div id="user-actions" class="user-info"></div>
+            </header>
+            <main id="home-main">
+                <div class="search-wrapper">
+                    <div id="poda">
+                      <div class="glow"></div><div class="darkBorderBg"></div><div class="darkBorderBg"></div><div class="darkBorderBg"></div>
+                      <div class="white"></div><div class="border"></div>
+                      <div id="main">
+                        <input placeholder="ស្វែងរកបន្ទប់..." type="text" id="room-search-input" class="input" />
+                        <div id="input-mask"></div><div id="pink-mask"></div><div class="filterBorder"></div>
+                        <div id="filter-icon">
+                          <svg preserveAspectRatio="none" height="27" width="27" viewBox="4.8 4.56 14.832 15.408" fill="none"><path d="M8.16 6.65002H15.83C16.47 6.65002 16.99 7.17002 16.99 7.81002V9.09002C16.99 9.56002 16.7 10.14 16.41 10.43L13.91 12.64C13.56 12.93 13.33 13.51 13.33 13.98V16.48C13.33 16.83 13.1 17.29 12.81 17.47L12 17.98C11.24 18.45 10.2 17.92 10.2 16.99V13.91C10.2 13.5 9.97 12.98 9.73 12.69L7.52 10.36C7.23 10.08 7 9.55002 7 9.20002V7.87002C7 7.17002 7.52 6.65002 8.16 6.65002Z" stroke="#d6d6e6" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                        </div>
+                        <div id="search-icon">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" viewBox="0 0 24 24" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" height="24" fill="none"><circle stroke="url(#search)" r="8" cy="11" cx="11"></circle><line stroke="url(#searchl)" y2="16.65" y1="22" x2="16.65" x1="22"></line><defs><linearGradient gradientTransform="rotate(50)" id="search"><stop stop-color="#f8e7f8" offset="0%"></stop><stop stop-color="#b6a9b7" offset="50%"></stop></linearGradient><linearGradient id="searchl"><stop stop-color="#b6a9b7" offset="0%"></stop><stop stop-color="#837484" offset="50%"></stop></linearGradient></defs></svg>
+                        </div>
+                      </div>
+                    </div>
+                </div>
+
+                <h2 style="margin-top: 30px; text-align: center;">បន្ទប់ដែលអាចចូលរួមបាន</h2>
+                <div id="rooms-list"><p style="text-align: center;">កំពុងស្វែងរកបន្ទប់...</p></div>
+            </main>
+        </div>
         
         <div id="admin-view" class="view">
-            <header><h1>ផ្ទាំងគ្រប់គ្រង</h1><button id="back-to-home-admin-btn">ត្រលប់ទៅទំព័រដើម</button></header>
+            <header><h1>ផ្ទាំងគ្រប់គ្រង</h1><button id="back-to-home-admin-btn" class="secondary-btn" style="width:auto;">ត្រលប់ទៅទំព័រដើម</button></header>
             <div class="admin-sections">
                 <div class="admin-section create-quiz-section">
                     <h3>បង្កើតកម្រងសំណួរថ្មី</h3>
                     <div class="form-group"><input type="text" id="quiz-title" placeholder="ចំណងជើងកម្រងសំណួរ"></div>
                     <hr>
                     <div class="bot-section">
-                        <h4>ប្រើ AI បង្កើតសំណួរពីអត្ថបទ</h4>
-                        <div class="form-group">
-                            <textarea id="bot-text-input" placeholder="សូមសរសេរប្រធានបទ ឬអត្ថបទនៅទីនេះ... (ឧ. ប្រវត្តិសាស្ត្រខ្មែរ)" rows="4"></textarea>
-                        </div>
-                        <button id="bot-text-create-btn">AI បង្កើតពីអត្ថបទ</button>
+                        <h4>AI បង្កើតសំណួរពីអត្ថបទ</h4>
+                        <div class="form-group"><textarea id="bot-text-input" placeholder="សរសេរប្រធានបទនៅទីនេះ..." rows="4"></textarea></div>
+                        <button id="bot-text-create-btn" class="magic-btn">✨ បង្កើតពីអត្ថបទ</button>
                     </div>
                     <hr>
                     <div class="bot-section">
-                        <h4>ប្រើ AI បង្កើតសំណួរពីរូបភាព</h4>
+                        <h4>AI បង្កើតសំណួរពីរូបភាព</h4>
                         <div class="form-group"><input type="file" id="bot-image-upload" accept="image/*" multiple><div id="file-list"></div></div>
-                        <button id="bot-image-create-btn">AI បង្កើតពីរូបភាព</button>
+                        <button id="bot-image-create-btn" class="magic-btn">📸 បង្កើតពីរូបភាព</button>
                         <div id="bot-status" style="display: none;"><div class="spinner"></div><p>AI កំពុងវិភាគ...</p></div>
-                        <button id="refine-ai-btn" style="display:none;" class="secondary-btn">ចរចាជាមួយ AI</button>
+                        <button id="refine-ai-btn" style="display:none;" class="secondary-btn mt-10">ចរចាជាមួយ AI</button>
                     </div>
                     <hr>
                     <h4>បញ្ជីសំណួរ</h4>
                     <div id="questions-container"></div>
-                    <button id="add-question-btn">បន្ថែមសំណួរដោយដៃ +</button>
+                    <button id="add-question-btn" class="secondary-btn dashed-btn">បន្ថែមសំណួរដោយដៃ +</button>
                     <hr>
-                    <button id="save-quiz-btn" class="primary-action-btn">រក្សាទុកកម្រងសំណួរ</button>
+                    <button id="save-quiz-btn" class="magic-btn" style="padding: 20px; font-size:1.2rem;">រក្សាទុកកម្រងសំណួរ</button>
                 </div>
                 <div class="admin-section manage-section">
-                    <h3>គ្រប់គ្រងកម្រងសំណួរ</h3>
-                    <ul id="manage-quizzes-list"></ul>
-                    <hr>
-                    <h3>គ្រប់គ្រងអ្នកប្រើប្រាស់</h3>
-                    <ul id="manage-users-list"></ul>
-                    <hr>
+                    <div id="owner-panel" style="display:none; background:rgba(207, 48, 170, 0.1); border:1px solid #cf30aa; padding:15px; border-radius:8px; margin-bottom:20px;">
+                        <h3 style="color:#cf30aa;">👑 Owner Panel</h3>
+                        <p style="font-size:0.8rem; margin-bottom:10px;">ចាត់តាំង ឬដកសិទ្ធិ Admin</p>
+                        <ul id="owner-manage-admins-list"></ul>
+                    </div>
+
+                    <h3>គ្រប់គ្រងកម្រងសំណួរ</h3><ul id="manage-quizzes-list"></ul><hr>
+                    <h3>គ្រប់គ្រងអ្នកប្រើប្រាស់</h3><ul id="manage-users-list"></ul><hr>
                     <h3>ប្រព័ន្ធផ្សព្វផ្សាយសារ</h3>
                     <div class="form-group"><select id="broadcast-recipient"></select></div>
                     <textarea id="broadcast-message-input" placeholder="វាយសាររបស់អ្នក..." rows="3"></textarea>
-                    <button id="send-broadcast-btn">ផ្ញើសារ</button>
+                    <button id="send-broadcast-btn" class="magic-btn">ផ្ញើសារ</button>
                 </div>
             </div>
         </div>
@@ -75,7 +127,7 @@
                 <h2 id="lobby-quiz-title">Quiz Title Here</h2>
                 <div class="lobby-join-link-container">
                     <input type="text" id="lobby-join-link-input" readonly value="Generating link...">
-                    <button id="lobby-copy-link-btn">Copy</button>
+                    <button id="lobby-copy-link-btn" class="magic-btn" style="width: auto; margin:0; padding:0 20px;">Copy</button>
                 </div>
             </div>
             <div class="lobby-content-area">
@@ -93,13 +145,12 @@
                     <img id="player-avatar-display" src="" alt="Avatar" class="player-avatar-large">
                     <h3 id="player-username-display"></h3>
                 </div>
-                <div class="lobby-admin-controls">
-                    <button id="start-game-btn" style="display: none;">START</button>
-                    <button id="close-room-btn" style="display: none;" class="secondary-btn">Close Room</button>
+                <div class="lobby-admin-controls" style="display:flex; gap:10px;">
+                    <button id="start-test-btn" class="magic-btn" style="display: none; margin:0; width:200px;">ចាប់ផ្តើមការប្រឡង</button>
+                    <button id="start-game-btn" class="magic-btn" style="display: none; margin:0; width:150px;">START</button>
+                    <button id="close-room-btn" class="secondary-btn" style="display: none; margin:0;">Close Room</button>
                 </div>
-                <div id="lobby-wait-message">
-                    Waiting for host to start the game...
-                </div>
+                <div id="lobby-wait-message">Waiting for host to start the game...</div>
             </div>
         </div>
 
@@ -107,19 +158,40 @@
             <div id="glitch-overlay" class="glitch-overlay" style="display: none;"></div>
             <div id="game-feedback-overlay" class="feedback-overlay"><div id="feedback-text"></div><div id="feedback-points"></div></div>
             <div class="game-overlay" id="countdown-overlay" style="display: none;"><div id="countdown-timer">5</div></div>
-            <div id="overtime-message-overlay" class="overtime-overlay" style="display: none;">
-                <h2>អស់ម៉ោងហើយ!</h2>
-                <p>ឆ្លើយដើម្បីទទួលបាន 50 ពិន្ទុ!</p>
-            </div>
+            <div id="overtime-message-overlay" class="overtime-overlay" style="display: none;"><h2>អស់ម៉ោងហើយ!</h2><p>ឆ្លើយដើម្បីទទួលបាន 50 ពិន្ទុ!</p></div>
             <div class="game-header">
                 <div class="game-info">សំណួរ <span id="question-number">1</span>/<span id="total-questions">10</span></div>
                 <div class="game-info" id="live-rank-display">Rank: --</div>
                 <div class="game-info">ពិន្ទុ: <span id="player-score">0</span></div>
             </div>
-            <div class="progress-bar-container"><div class="progress-bar" id="time-bar"></div></div>
-            <div class="question-content"><img id="game-question-image" src="" style="display:none;" class="game-question-image-style"><h2 id="game-question-text"></h2></div>
+            <div class="progress-bar-container" id="time-bar-container"><div class="progress-bar" id="time-bar"></div></div>
+            <div class="question-content"><img id="game-question-image" src="" style="display:none;" class="game-question-image-style"><h2 id="game-question-text" style="font-size:2rem;"></h2></div>
             <div id="answer-options-container" class="answer-options"></div>
-            <div class="game-footer"><button id="powerup-glitch-btn" class="powerup-btn powerup-glitch" disabled>Glit<span class="glitch-effect">c</span>h <span id="powerup-glitch-count"></span></button><button id="powerup-shield-btn" class="powerup-btn powerup-shield" disabled>Shield <span id="powerup-shield-count"></span></button><div class="streak-counter">🔥 Streak: <span id="streak-count">0</span></div></div>
+            <div class="game-footer" id="game-powerup-footer">
+                <button id="powerup-glitch-btn" class="powerup-btn powerup-glitch" disabled>
+                    <span class="pu-icon">👾</span> Glitch <span id="powerup-glitch-count" class="pu-badge"></span>
+                </button>
+                <button id="powerup-shield-btn" class="powerup-btn powerup-shield" disabled>
+                    <span class="pu-icon">🛡️</span> Shield <span id="powerup-shield-count" class="pu-badge"></span>
+                </button>
+                <div class="streak-counter">🔥 Streak: <span id="streak-count">0</span></div>
+            </div>
+        </div>
+
+        <div id="test-result-view" class="view">
+            <div class="test-result-container">
+                <h1 class="mega-glow-text" style="font-size: 3.5rem; margin-bottom: 10px;">ជូនពរប្រឡងជាប់!</h1>
+                <h2 style="color: #c0b9c0; font-weight:400; margin-bottom: 40px;">អ្នកបានបញ្ចប់ការប្រឡងរួចរាល់</h2>
+                
+                <div class="score-card">
+                    <p>ពិន្ទុសរុបរបស់អ្នក</p>
+                    <h1 id="test-final-score" style="font-size: 4rem; color: #cf30aa;">0</h1>
+                </div>
+
+                <div id="test-answer-review-container" style="text-align: left; margin-top:30px;"></div>
+                
+                <button id="back-to-home-from-test-btn" class="magic-btn" style="margin-top: 40px;">ត្រលប់ទៅទំព័រដើម</button>
+            </div>
         </div>
 
         <div id="leaderboard-view" class="view">
@@ -128,45 +200,28 @@
                 <div class="podium">
                     <div class="podium-place place-2">
                         <div class="podium-rank-badge">2</div>
-                        <div class="podium-details">
-                            <img id="winner-2-avatar" class="podium-avatar">
-                            <div class="podium-name" id="winner-2-name"></div>
-                            <div class="podium-score" id="winner-2-score"></div>
-                        </div>
+                        <div class="podium-details"><img id="winner-2-avatar" class="podium-avatar"><div class="podium-name" id="winner-2-name"></div><div class="podium-score" id="winner-2-score"></div></div>
                     </div>
                     <div class="podium-place place-1">
                         <div class="podium-rank-badge">1</div>
-                        <div class="podium-details">
-                            <img id="winner-1-avatar" class="podium-avatar">
-                            <div class="podium-name" id="winner-1-name"></div>
-                            <div class="podium-score" id="winner-1-score"></div>
-                        </div>
+                        <div class="podium-details"><img id="winner-1-avatar" class="podium-avatar"><div class="podium-name" id="winner-1-name"></div><div class="podium-score" id="winner-1-score"></div></div>
                     </div>
                     <div class="podium-place place-3">
                         <div class="podium-rank-badge">3</div>
-                        <div class="podium-details">
-                            <img id="winner-3-avatar" class="podium-avatar">
-                            <div class="podium-name" id="winner-3-name"></div>
-                            <div class="podium-score" id="winner-3-score"></div>
-                        </div>
+                        <div class="podium-details"><img id="winner-3-avatar" class="podium-avatar"><div class="podium-name" id="winner-3-name"></div><div class="podium-score" id="winner-3-score"></div></div>
                     </div>
                 </div>
                 <h2>តារាងពិន្ទុ</h2>
                 <ul id="leaderboard-list"></ul>
-                <div id="answer-review-section">
-                    <h3>ពិនិត្យចម្លើយឡើងវិញ</h3>
-                    <div id="answer-review-container"></div>
-                </div>
-                <button id="back-to-home-from-leaderboard-btn">ត្រលប់ទៅទំព័រដើម</button>
+                <div id="answer-review-section"><h3>ពិនិត្យចម្លើយឡើងវិញ</h3><div id="answer-review-container"></div></div>
+                <button id="back-to-home-from-leaderboard-btn" class="magic-btn mt-20">ត្រលប់ទៅទំព័រដើម</button>
             </div>
         </div>
     </div>
     
-    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-database-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-storage-compat.js"></script>
-    
     <script src="script.js"></script>
 </body>
 </html>
