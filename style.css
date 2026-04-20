@@ -343,3 +343,23 @@ header { display: flex; justify-content: space-between; align-items: center; pad
     border-radius: 12px;
     border: 2px solid #402fb5;
 }
+/* --- AI Chat Box in Admin --- */
+.chat-box { 
+    height: 350px; overflow-y: auto; background: rgba(0,0,0,0.6); 
+    border: 1px solid #402fb5; border-radius: 8px; padding: 15px; 
+    display: flex; flex-direction: column; gap: 10px; 
+}
+.chat-msg { 
+    padding: 12px 16px; border-radius: 12px; max-width: 90%; 
+    word-wrap: break-word; white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5;
+}
+.bot-msg { 
+    background: rgba(207, 48, 170, 0.15); color: #e2a1e6; 
+    align-self: flex-start; border: 1px solid rgba(207, 48, 170, 0.3); 
+    border-bottom-left-radius: 2px; 
+}
+.user-msg { 
+    background: rgba(64, 47, 181, 0.4); color: #fff; 
+    align-self: flex-end; border: 1px solid rgba(64, 47, 181, 0.6); 
+    border-bottom-right-radius: 2px; 
+}
