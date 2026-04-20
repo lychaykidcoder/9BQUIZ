@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 1. Firebase Configuration ---
     const firebaseConfig = {
   apiKey: "AIzaSyBdAhFRyJ0BX3a45A-998vRbFU4yd0gg8U",
   authDomain: "web-quiz-9b-2026.firebaseapp.com",
@@ -10,17 +11,21 @@ document.addEventListener('DOMContentLoaded', () => {
 };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const storage = firebase.storage();
 
+    // --- 2. Global State & Prompt ថ្មី (បង្ខំអោយ Random និងមាន Title) ---
     const AVATAR_LIST = ['download.jpg', 'spider.jpg', 'gojo.jpg', 'tungtungsahur.jpg', 'giyu.jpg', 'tanjiro.jpg', 'shinobu.jpg', 'shinobou.jpg'];
     const app = {
         users: [], quizzes: [], rooms: [], currentUser: null, currentRoomId: null,
         currentQuiz: null, gameState: {}, questionTimer: null,
         ownerEmail: "lychayzooba@gmail.com", 
-        aiConversationHistory: "System: You are a quiz generator assistant. Always output JSON format when asked." 
+        // វាយខ្នោះ AI: បង្ខំអោយ Random លេខ Index ចម្លើយត្រូវ (0,1,2,3) និងត្រូវតែមានចំណងជើង (title)
+        aiConversationHistory: "System: You are an expert Quiz Creator. OUTPUT STRICTLY IN JSON. Rules:\n1. 'correct_answer_index' MUST BE RANDOMIZED (0, 1, 2, or 3) for each question.\n2. Must include a 'title' for the quiz.\n3. Exact Format: {\"title\": \"[Khmer Title]\", \"questions\": [{\"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"], \"correct_answer_index\": <random 0-3>}]}" 
     };
     let dataLoaded = false;
+    window.latestAIQuizQuestions = null; 
+    window.latestAIQuizTitle = "";
 
+    // --- 3. DOM Selectors ---
     const $ = (selector) => document.querySelector(selector);
     const $$ = (selector) => document.querySelectorAll(selector);
     const views = { login: $('#login-view'), signup: $('#signup-view'), home: $('#home-view'), admin: $('#admin-view'), lobby: $('#quiz-lobby-view'), game: $('#quiz-game-view'), leaderboard: $('#leaderboard-view'), testResult: $('#test-result-view') };
@@ -32,50 +37,74 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const encodeEmail = (email) => email ? email.replace(/\./g, ',') : '';
     const decodeEmail = (encodedEmail) => encodedEmail ? encodedEmail.replace(/,/g, '.') : '';
-    const showModal = (title, bodyHtml, onOk) => { $('#modal-title').textContent = title; $('#modal-body').innerHTML = bodyHtml; $('#modal-overlay').style.display = 'flex'; const okButton = $('#modal-ok-btn'); if (okButton) { okButton.onclick = () => { $('#modal-overlay').style.display = 'none'; if (onOk) onOk(); }; } };
-    const showNotification = (message, duration = 3000) => { const notif = $('#global-notification'); notif.textContent = message; notif.style.display = 'block'; setTimeout(() => { if (notif.textContent === message) notif.style.display = 'none'; }, duration); };
+    
+    const showModal = (title, bodyHtml, onOk) => { 
+        const titleEl = $('#modal-title'); const bodyEl = $('#modal-body'); const overlay = $('#modal-overlay');
+        if(titleEl && bodyEl && overlay) {
+            titleEl.textContent = title; bodyEl.innerHTML = bodyHtml; overlay.style.display = 'flex'; 
+            const okButton = $('#modal-ok-btn'); 
+            if (okButton) { okButton.onclick = () => { overlay.style.display = 'none'; if (onOk) onOk(); }; } 
+        }
+    };
+    
+    const showNotification = (message, duration = 3000) => { 
+        const notif = $('#global-notification'); 
+        if(notif) { notif.innerHTML = message; notif.style.display = 'block'; setTimeout(() => { if (notif.innerHTML === message) notif.style.display = 'none'; }, duration); }
+    };
 
+    // --- 4. Main Initialization ---
     const init = () => {
         addEventListeners();
-        try { app.currentUser = JSON.parse(localStorage.getItem('quiz9b_currentUser')); } catch(e) { app.currentUser = null; }
+        try { 
+            const storedUser = localStorage.getItem('quiz9b_currentUser');
+            app.currentUser = storedUser ? JSON.parse(storedUser) : null; 
+        } catch(e) { app.currentUser = null; }
+        
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
 
         if (!app.currentUser) {
             if (roomId) handleGuestLogin(roomId); else showView('login');
-        } else { showView('home'); updateHomeUI(); }
+        } else {
+            showView('home'); updateHomeUI();
+        }
         
         db.ref('users').on('value', s => { 
             app.users = s.val() ? Object.values(s.val()) : []; 
             const encodedOwner = encodeEmail(app.ownerEmail);
-            if (!app.users.find(u => u.email === app.ownerEmail)) { db.ref('users/' + encodedOwner).set({ username: 'Owner', email: app.ownerEmail, password: 'OwnerPassword!', isAdmin: true, isOwner: true, banned: false }); }
+            if (!app.users.find(u => u.email === app.ownerEmail)) {
+                db.ref('users/' + encodedOwner).set({ username: 'Owner', email: app.ownerEmail, password: '123', isAdmin: true, isOwner: true, banned: false }); 
+            }
             dataLoaded = true; updateUIbasedOnState(); 
         });
 
         db.ref('quizzes').on('value', s => { app.quizzes = s.val() ? Object.values(s.val()) : []; updateUIbasedOnState(); });
         db.ref('rooms').on('value', s => { 
             app.rooms = s.val() ? Object.values(s.val()) : []; 
-            if (app.currentRoomId && !app.rooms.find(r => r.id === app.currentRoomId) && ($('#quiz-game-view').style.display !== 'none' || $('#quiz-lobby-view').style.display !== 'none')) { forceGoHome("បន្ទប់ត្រូវបានបិទដោយ Admin។"); } 
+            if (app.currentRoomId && !app.rooms.find(r => r.id === app.currentRoomId) && ($('#quiz-game-view')?.style.display !== 'none' || $('#quiz-lobby-view')?.style.display !== 'none')) { 
+                forceGoHome("បន្ទប់ត្រូវបានបិទដោយ Admin។"); 
+            } 
             updateUIbasedOnState(); 
         });
     };
 
     function updateUIbasedOnState() {
         if (!dataLoaded) return;
-        if ($('#home-view').style.display !== 'none') updateHomeUI();
-        if ($('#admin-view').style.display !== 'none') updateAdminUI();
+        if ($('#home-view')?.style.display !== 'none') updateHomeUI();
+        if ($('#admin-view')?.style.display !== 'none') updateAdminUI();
+
         if (app.currentRoomId) {
             const room = app.rooms.find(r => r.id === app.currentRoomId);
             if (room) {
-                if ($('#quiz-lobby-view').style.display !== 'none') {
+                if ($('#quiz-lobby-view')?.style.display !== 'none') {
                     updateLobbyUI(room);
-                    if (!room.isTest && room.status === 'active' && $('#quiz-game-view').style.display === 'none') {
+                    if (!room.isTest && room.status === 'active' && $('#quiz-game-view')?.style.display === 'none') {
                         app.currentQuiz = app.quizzes.find(q => q.id === room.quizId);
                         if (app.currentQuiz) startGame();
                     }
                 }
-                if ($('#quiz-game-view').style.display !== 'none' && !room.isTest) updateLiveRank();
-                if ($('#leaderboard-view').style.display !== 'none' && !room.isTest) displayLeaderboard(room);
+                if ($('#quiz-game-view')?.style.display !== 'none' && !room.isTest) updateLiveRank();
+                if ($('#leaderboard-view')?.style.display !== 'none' && !room.isTest) displayLeaderboard(room);
             }
         }
     }
@@ -83,8 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const forceGoHome = (message) => { showModal("System Notice", `<p>${message}</p><button id='modal-ok-btn' class='magic-btn mt-20'>យល់ព្រម</button>`, goHome); };
     const goHome = () => { app.currentRoomId = null; app.currentQuiz = null; localStorage.removeItem('quiz9b_gameState'); if (window.location.search) window.history.pushState({}, '', window.location.pathname); showView('home'); updateHomeUI(); };
 
-    // --- Auth & Guest ---
-    const handleLogout = () => { app.currentUser = null; app.currentRoomId = null; localStorage.removeItem('quiz9b_currentUser'); localStorage.removeItem('quiz9b_gameState'); showView('login'); };
+    // --- 5. Auth & Guest Login (Username Only) ---
+    const handleLogout = () => { app.currentUser = null; app.currentRoomId = null; localStorage.clear(); showView('login'); };
     const handleLogin = () => { 
         const e = $('#login-email').value.trim(); const p = $('#login-password').value; 
         const user = app.users.find(u => u.email === e && u.password === p); 
@@ -94,7 +123,6 @@ document.addEventListener('DOMContentLoaded', () => {
             localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); goHome(); 
         } else { alert('អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។'); }
     };
-    
     const handleSignup = () => { 
         const u = $('#signup-username').value.trim(); const e = $('#signup-email').value.trim(); const p = $('#signup-password').value; 
         if (!u || !e || !p) return alert('សូមបំពេញចន្លោះទាំងអស់។'); 
@@ -106,36 +134,55 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const handleGuestLogin = (roomId) => { 
-        showModal("ចូលជាភ្ញៀវ (Guest)", `<p style="margin-bottom:15px; color:#c0b9c0;">សូមវាយបញ្ចូលឈ្មោះរបស់អ្នកដើម្បីចូលលេង៖</p><input type="text" id="guest-username-input" class="input" style="width:100% !important; margin:0 0 15px 0 !important;" placeholder="ឧទាហរណ៍៖ សិស្សឆ្នើម"><button id="guest-join-btn" class="magic-btn" style="width:100%;">ចូលលេងហ្គេម</button>`); 
-        $('#guest-join-btn').onclick = () => { 
-            const username = $('#guest-username-input').value.trim(); 
-            if (username) { 
-                app.currentUser = { username, email: `guest_${Date.now()}@quiz.com`, isGuest: true, isAdmin: false, isOwner: false }; 
-                localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); $('#modal-overlay').style.display = 'none'; 
-                if (roomId) { joinRoom(roomId); } else { showView('home'); updateHomeUI(); }
-            } else { alert("សូមបញ្ចូលឈ្មោះរបស់អ្នក។"); }
-        }; 
+        const guestName = prompt("សូមបញ្ចូលឈ្មោះរបស់អ្នកដើម្បីចូលលេង:");
+        if (guestName && guestName.trim() !== "") {
+            app.currentUser = { 
+                username: guestName.trim(), 
+                email: `guest_${Date.now()}@guest.com`, 
+                isGuest: true, isAdmin: false, isOwner: false 
+            };
+            localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser));
+            if (roomId) joinRoom(roomId); else { showView('home'); updateHomeUI(); }
+        } else if(guestName !== null) {
+            alert("សូមបញ្ចូលឈ្មោះជាមុនសិន!");
+        }
     };
 
-    // --- Home UI ---
+    // --- 6. Home & Admin UI ---
     const updateHomeUI = () => { 
         const c = $('#user-actions'); 
-        if (app.currentUser && !app.currentUser.isGuest) { c.innerHTML = `<span style="color:white; margin-right:15px;">សួស្តី, <b>${app.currentUser.username}</b></span><button id="logout-btn" class="secondary-btn small-btn">ចាកចេញ</button>${app.currentUser.isAdmin || app.currentUser.isOwner ? '<button id="admin-panel-btn" class="magic-btn small-btn" style="margin-left: 10px; padding:10px 15px !important;">ផ្ទាំង Admin</button>' : ''}`; } 
-        else { c.innerHTML = `<button id="show-login-btn" class="magic-btn small-btn" style="padding:10px 15px !important;">ចូលគណនី</button>`; } 
+        if (c) {
+            if (app.currentUser && !app.currentUser.isGuest) { 
+                c.innerHTML = `<span style="color:white; margin-right:15px;">សួស្តី, <b>${app.currentUser.username}</b></span><button id="logout-btn" class="secondary-btn small-btn">ចាកចេញ</button>${app.currentUser.isAdmin || app.currentUser.isOwner ? '<button id="admin-panel-btn" class="magic-btn small-btn" style="margin-left: 10px; padding:10px 15px !important;">ផ្ទាំង Admin</button>' : ''}`; 
+            } else { 
+                c.innerHTML = `<button id="show-login-btn" class="magic-btn small-btn" style="padding:10px 15px !important;">ចូលគណនី</button>`; 
+            }
+        }
         renderRooms(); 
     };
     
     const renderRooms = (searchTerm = "") => { 
-        $('#rooms-list').innerHTML = ''; 
+        const list = $('#rooms-list');
+        if(!list) return;
+        list.innerHTML = ''; 
         let available = app.rooms.filter(r => r.status === 'waiting' || (r.isTest && r.status === 'active')); 
-        if (searchTerm) { available = available.filter(room => { const quiz = app.quizzes.find(q => q.id === room.quizId); const host = app.users.find(u => u.email === room.host); return (quiz && quiz.title.toLowerCase().includes(searchTerm.toLowerCase())) || (host && host.username.toLowerCase().includes(searchTerm.toLowerCase())); }); }
-        if (available.length === 0) { $('#rooms-list').innerHTML = '<p style="color:#aaa;">មិនមានបន្ទប់កំពុងរង់ចាំទេ។</p>'; return; } 
+        
+        if (searchTerm) {
+            available = available.filter(room => {
+                const quiz = app.quizzes.find(q => q.id === room.quizId);
+                const host = app.users.find(u => u.email === room.host);
+                return (quiz && quiz.title.toLowerCase().includes(searchTerm.toLowerCase())) || (host && host.username.toLowerCase().includes(searchTerm.toLowerCase()));
+            });
+        }
+        
+        if (available.length === 0) { list.innerHTML = '<p style="color:#aaa;">មិនមានបន្ទប់កំពុងរង់ចាំទេ។</p>'; return; } 
         available.forEach(room => { 
-            const quiz = app.quizzes.find(q => q.id === room.quizId); const host = app.users.find(u => u.email === room.host); 
+            const quiz = app.quizzes.find(q => q.id === room.quizId); 
+            const host = app.users.find(u => u.email === room.host); 
             if (quiz) { 
                 const card = document.createElement('div'); card.className = 'room-card'; card.addEventListener('click', () => { if (app.currentUser) { joinRoom(room.id); } else { handleGuestLogin(room.id); } }); 
                 card.innerHTML = `<h3 style="color:#cf30aa;">${quiz.title}</h3><p style="margin-bottom:10px; color:#c0b9c0;">បង្កើតដោយ៖ ${host ? host.username : 'N/A'}</p>${room.isTest ? '<span style="background:#cf30aa; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">📝 ការប្រឡង (Test)</span>' : '<span style="background:#402fb5; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">🎮 Live Game</span>'}`; 
-                $('#rooms-list').appendChild(card); 
+                list.appendChild(card); 
             } 
         }); 
     };
@@ -144,68 +191,148 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const updateAdminUI = () => { 
         if (!app.currentUser || (!app.currentUser.isAdmin && !app.currentUser.isOwner)) return;
+        
         if (app.currentUser.isOwner) {
             const ownerPanel = $('#owner-panel');
             if(ownerPanel) {
-                ownerPanel.style.display = 'block'; const adminList = $('#owner-manage-admins-list'); adminList.innerHTML = '';
-                app.users.filter(u => !u.isGuest && !u.isOwner).forEach(user => {
-                    const li = document.createElement('li'); li.style.display = 'flex'; li.style.justifyContent = 'space-between'; li.style.alignItems = 'center'; li.style.marginBottom = '10px'; li.style.padding = '10px'; li.style.background = 'rgba(0,0,0,0.3)'; li.style.borderRadius = '8px';
-                    li.innerHTML = `<span>${user.username} <small>(${user.email})</small></span> <button class="toggle-admin-btn ${user.isAdmin ? 'secondary-btn' : 'magic-btn'}" data-email="${user.email}" style="width:auto; padding:5px 15px !important; margin:0;">${user.isAdmin ? 'ដក Admin' : 'ធ្វើជា Admin'}</button>`;
-                    adminList.appendChild(li);
-                });
+                ownerPanel.style.display = 'block';
+                const adminList = $('#owner-manage-admins-list');
+                if(adminList){
+                    adminList.innerHTML = '';
+                    app.users.filter(u => !u.isGuest && !u.isOwner).forEach(user => {
+                        const li = document.createElement('li'); li.style.display = 'flex'; li.style.justifyContent = 'space-between'; li.style.alignItems = 'center'; li.style.marginBottom = '10px'; li.style.padding = '10px'; li.style.background = 'rgba(0,0,0,0.3)'; li.style.borderRadius = '8px';
+                        li.innerHTML = `<span>${user.username} <small>(${user.email})</small></span> <button class="toggle-admin-btn ${user.isAdmin ? 'secondary-btn' : 'magic-btn'}" data-email="${user.email}" style="width:auto; padding:5px 15px !important; margin:0;">${user.isAdmin ? 'ដក Admin' : 'ធ្វើជា Admin'}</button>`;
+                        adminList.appendChild(li);
+                    });
+                }
             }
         }
-        $('#manage-quizzes-list').innerHTML = ''; 
-        (app.quizzes || []).forEach(q => { const li = document.createElement('li'); li.innerHTML = `<span>${q.title}</span><div style="display:flex;gap:5px;"><button class="host-quiz-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important;">Live 🎮</button><button class="host-test-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important; background:#cf30aa !important;">ប្រឡង 📝</button><button class="delete-quiz-btn secondary-btn small-btn" data-quiz-id="${q.id}" style="color:#dc3545; border-color:#dc3545;">លុប</button></div>`; $('#manage-quizzes-list').appendChild(li); }); 
-        $('#manage-users-list').innerHTML = ''; 
-        app.users.filter(u => !u.isOwner).forEach(user => { const li = document.createElement('li'); li.innerHTML = `<span>${user.username} ${user.isAdmin ? '<b style="color:#cf30aa;">(Admin)</b>' : ''} ${user.banned ? '<b style="color:red;">(BANNED)</b>' : ''}</span><button class="ban-user-btn secondary-btn small-btn" data-user-email="${user.email}">${user.banned ? 'Unban' : 'Ban'}</button>`; $('#manage-users-list').appendChild(li);}); 
+
+        const quizList = $('#manage-quizzes-list');
+        if(quizList){
+            quizList.innerHTML = ''; 
+            (app.quizzes || []).forEach(q => { const li = document.createElement('li'); li.innerHTML = `<span>${q.title}</span><div style="display:flex;gap:5px;"><button class="host-quiz-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important;">Live 🎮</button><button class="host-test-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important; background:#cf30aa !important;">ប្រឡង 📝</button><button class="delete-quiz-btn secondary-btn small-btn" data-quiz-id="${q.id}" style="color:#dc3545; border-color:#dc3545;">លុប</button></div>`; quizList.appendChild(li); }); 
+        }
+
+        const userList = $('#manage-users-list');
+        if(userList){
+            userList.innerHTML = ''; 
+            app.users.filter(u => !u.isOwner).forEach(user => { const li = document.createElement('li'); li.innerHTML = `<span>${user.username} ${user.isAdmin ? '<b style="color:#cf30aa;">(Admin)</b>' : ''} ${user.banned ? '<b style="color:red;">(BANNED)</b>' : ''}</span><button class="ban-user-btn secondary-btn small-btn" data-user-email="${user.email}">${user.banned ? 'Unban' : 'Ban'}</button>`; userList.appendChild(li);}); 
+        }
     };
 
-    // --- ✨ AI CHAT & PARSING SYSTEM ✨ ---
+    // --- 7. ✨ AI CHAT, AUTO-TITLE, & AUTO-TICK SYSTEM ✨ ---
     const appendToChat = (role, text) => {
         const chatBox = $('#admin-chat-history');
         if(!chatBox) return;
         const msgDiv = document.createElement('div');
         msgDiv.className = `chat-msg ${role === 'user' ? 'user-msg' : 'bot-msg'}`;
-        // Extract inner text if it's an object
         msgDiv.textContent = typeof text === 'object' ? JSON.stringify(text, null, 2) : text;
         chatBox.appendChild(msgDiv);
         chatBox.scrollTop = chatBox.scrollHeight;
     };
 
-    const fileToDataUrl = file => new Promise(resolve => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result); reader.readAsDataURL(file); });
-
-    const handleImageBotCreate = async () => {
-        const files = $('#bot-image-upload').files; if (files.length === 0) return alert("សូមជ្រើសរើសរូបភាព។");
-        $('#bot-status').style.display = 'block'; $('#bot-image-create-btn').disabled = true;
-        let PROMPT = `Generate 5 multiple-choice questions in Khmer based on this image. Format MUST be exactly this JSON: {"questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": 0}]}`;
+    // មុខងារនេះបញ្ចូលសំណួរចូល Form ទាំងអស់ និងដាក់ចំណងជើងអូតូ
+    window.applyChatQuiz = () => {
+        if (!window.latestAIQuizQuestions) return alert('គ្មានសំណួរថ្មីទេ!');
         
-        appendToChat('user', "[បានផ្ញើរូបភាពទៅ AI: សុំឱ្យបង្កើតសំណួរ]");
-        try { 
-            const imageUrl = await fileToDataUrl(files[0]); 
-            const response = await puter.ai.chat(PROMPT, imageUrl, { model: 'gemini-3-flash-preview' }); 
-            appendToChat('bot', response);
-            processAIResult(response, PROMPT); 
-        } catch (error) { appendToChat('bot', `Error: ${error.message}`); } 
-        finally { $('#bot-status').style.display = 'none'; $('#bot-image-create-btn').disabled = false; }
+        // Auto Fill Title
+        const titleInput = $('#quiz-title');
+        if (titleInput && window.latestAIQuizTitle && titleInput.value.trim() === '') {
+            titleInput.value = window.latestAIQuizTitle;
+        }
+
+        $('#questions-container').innerHTML = ''; 
+        window.latestAIQuizQuestions.forEach(q => populateQuestionFromData(q)); 
+        showNotification("ទាញយកសំណួរបានជោគជ័យ! ✅ ចំណងជើង និងចម្លើយត្រូវបញ្ចូលរួចរាល់។"); 
+    };
+
+    const processAIResponseForChat = (aiResultText, promptContext) => {
+        if (promptContext) app.aiConversationHistory += `\nSystem/User: ${promptContext}`;
+        
+        let actualText = typeof aiResultText === 'object' ? 
+            (aiResultText?.message?.content || aiResultText?.text || JSON.stringify(aiResultText)) : aiResultText;
+
+        app.aiConversationHistory += `\nAssistant: ${actualText}`;
+        const jsonMatch = actualText.match(/\{[\s\S]*\}/);
+
+        if (jsonMatch) {
+            try {
+                let cleanJson = jsonMatch[0].replace(/```json|```/g, "").trim();
+                const aiResult = JSON.parse(cleanJson);
+                
+                if (aiResult && (aiResult.questions || aiResult.quiz)) {
+                    window.latestAIQuizQuestions = aiResult.questions || aiResult.quiz; 
+                    window.latestAIQuizTitle = aiResult.title || "កម្រងសំណួរ AI"; // ចាប់យក Title
+                    
+                    const chatBox = $('#admin-chat-history');
+                    if(chatBox) {
+                        const msgDiv = document.createElement('div');
+                        msgDiv.className = `chat-msg bot-msg`;
+                        msgDiv.innerHTML = `
+                            <div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបង្កើត <b>${window.latestAIQuizQuestions.length} សំណួរ</b> រួចរាល់ហើយ! តើអ្នកចង់យកវាទៅប្រើទេ?</div>
+                            <button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ យល់ព្រម (បញ្ចូលសំណួរ & Auto Tick)</button>
+                        `;
+                        chatBox.appendChild(msgDiv);
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    }
+                    return; 
+                }
+            } catch (e) { console.warn("JSON parse error (Chat):", e); }
+        }
+
+        let displayText = actualText.replace(/```json|```/g, "").trim();
+        appendToChat('bot', displayText);
+    };
+
+    // FIX: AUTO-TICK & FILL INPUTS LOGIC
+    const populateQuestionFromData = (qData) => { 
+        const template = $('#question-template');
+        if(!template) return;
+        const node = template.content.cloneNode(true); 
+        const container = $('#questions-container');
+        const qIndex = container.children.length; 
+        
+        node.querySelector('h4').textContent = `Question ${qIndex + 1}`; 
+        // ប្រាកដថាវាចាប់យកពាក្យ question ឬ text (ព្រោះ AI ច្រើនប្រើពាក្យខុសៗគ្នា)
+        node.querySelector('.question-text').value = qData.question || qData.text || ''; 
+        
+        // ធានាថា Index ចាប់បានត្រឹមត្រូវ
+        let correctIdx = qData.correct_answer_index ?? qData.correct ?? qData.answerIndex ?? qData.correctIndex ?? 0;
+        correctIdx = parseInt(correctIdx);
+
+        // ទាញយក array ចម្លើយ
+        const optionsArray = qData.options || qData.answers || ["", "", "", ""];
+
+        node.querySelectorAll('.answer-option').forEach((opt, i) => {
+            const radio = opt.querySelector('input[type="radio"]');
+            const textInput = opt.querySelector('.answer-text');
+
+            radio.name = `correct_answer_${qIndex}`;
+            radio.value = i;
+            if (i === correctIdx) { radio.checked = true; } // Auto Tick
+            
+            // បំពេញចម្លើយចូល Input 
+            textInput.value = optionsArray[i] || '';
+        });
+        
+        container.appendChild(node); 
     };
 
     const handleTextBotCreate = async () => {
         const textInput = $('#bot-text-input').value.trim(); if (!textInput) return alert("សូមសរសេរប្រធានបទ។");
         $('#bot-text-create-btn').innerHTML = "កំពុងដំណើរការ..."; $('#bot-text-create-btn').disabled = true;
-        let PROMPT = `Topic: "${textInput}". Generate 5 multiple-choice questions in Khmer. Format MUST be exactly this JSON: {"questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": 0}]}`;
+        
+        let PROMPT = `Topic: "${textInput}". Generate 5 questions in Khmer. Format EXACTLY: {"title": "${textInput} Quiz", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
         
         appendToChat('user', `[ប្រធានបទ: ${textInput}] សូមបង្កើតសំណួរ`);
         try { 
-            const response = await puter.ai.chat(PROMPT, { model: 'gemini-3-flash-preview' }); 
-            if ($('#quiz-title').value.trim() === '') $('#quiz-title').value = textInput.substring(0, 30); 
-            appendToChat('bot', response);
-            processAIResult(response, PROMPT); 
+            const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3-flash-preview' }); 
+            processAIResponseForChat(response, `Topic: ${textInput}`); 
         } catch (error) { appendToChat('bot', `Error: ${error.message}`); } 
         finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
     };
 
-    // Chat Interface Logic
     $('#admin-chat-send-btn')?.addEventListener('click', async () => {
         const inputEl = $('#admin-chat-input');
         const msg = inputEl.value.trim();
@@ -214,98 +341,84 @@ document.addEventListener('DOMContentLoaded', () => {
         appendToChat('user', msg);
         inputEl.value = '';
         $('#admin-chat-send-btn').disabled = true;
-        app.aiConversationHistory += `\nUser: ${msg}\nAssistant: `;
+        
+        const PROMPT = `User says: "${msg}". Please respond and if you generate a quiz, use this JSON format: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
+        
+        app.aiConversationHistory += `\nUser: ${PROMPT}\nAssistant: `;
 
         try {
             const response = await puter.ai.chat(app.aiConversationHistory, { model: 'gemini-3-flash-preview' });
-            app.aiConversationHistory += `${response}`;
-            appendToChat('bot', response);
-        } catch (err) {
-            appendToChat('bot', `Error: ${err.message}`);
-        } finally {
-            $('#admin-chat-send-btn').disabled = false;
-        }
+            processAIResponseForChat(response, null);
+        } catch (err) { appendToChat('bot', `Error: ${err.message}`); } 
+        finally { $('#admin-chat-send-btn').disabled = false; }
     });
 
-    $('#admin-chat-extract-btn')?.addEventListener('click', () => {
-        // Try to extract from the entire conversation history
-        processAIResult(app.aiConversationHistory, "Manual Extraction via Chat");
-    });
-
-    const processAIResult = (aiResultText, prompt) => {
-        app.aiConversationHistory = `System: ${prompt}\n\nAssistant: ${aiResultText}`;
-        try {
-            let aiResult;
-            if (typeof aiResultText === 'object') {
-                aiResult = aiResultText;
-            } else {
-                const jsonMatch = aiResultText.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) throw new Error("រកមិនឃើញទម្រង់ JSON ទេ។");
-                let cleanJson = jsonMatch[0].replace(/```json|```/g, "").trim();
-                aiResult = JSON.parse(cleanJson);
-            }
-
-            if (aiResult && aiResult.questions && Array.isArray(aiResult.questions)) { 
-                $('#questions-container').innerHTML = ''; 
-                aiResult.questions.forEach(q => populateQuestionFromData(q)); 
-                showNotification("ទាញយកសំណួរបានជោគជ័យ! ✅"); 
-            } else throw new Error("JSON អត់មាន Array Questions");
-        } catch (e) { 
-            console.error("Parse Error:", e);
-            // Do NOT alert aggressively, the chat box shows the output now.
-            showNotification("⚠️ អានទម្រង់ JSON មិនដាច់។ សូម Chat ប្រាប់ AI ឱ្យចេញជា JSON វិញ។", 4000);
-        }
-    };
-
-    // --- Parse Manual Paste ---
-    const handlePasteAndParseAIQuiz = () => {
-        const pasteArea = $('#ai-paste-area'); let rawText = pasteArea.value.trim(); if (!rawText) return alert('សូមបិទភ្ជាប់អត្ថបទពី AI ជាមុនសិន។');
-        const firstBrace = rawText.indexOf('{'); const lastBrace = rawText.lastIndexOf('}'); if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) return alert('ទម្រង់មិនត្រឹមត្រូវ។');
-        let jsonText = rawText.substring(firstBrace, lastBrace + 1); jsonText = jsonText.replace(/,(?=\s*?[}\]])/g, '');
-        try {
-            const aiResult = JSON.parse(jsonText); if (!aiResult || !aiResult.questions || !Array.isArray(aiResult.questions)) throw new Error("JSON missing 'questions' array.");
-            const questionsContainer = $('#questions-container'); if (questionsContainer.children.length > 0) { if (!confirm("រាល់សំណួរចាស់នឹងត្រូវលុបចោល។ តើអ្នកចង់បន្តទេ?")) return; }
-            questionsContainer.innerHTML = ''; aiResult.questions.forEach(q => { if (q && typeof q.question === 'string' && Array.isArray(q.options) && q.options.length >= 4 && typeof q.correct_answer_index === 'number') { populateQuestionFromData(q); } });
-            if (questionsContainer.children.length > 0) { showNotification(`បានរៀបចំសំណួរដោយជោគជ័យ!`); } else { alert('មិនអាចទាញយកសំណួរណាមួយបានទេ។'); }
-        } catch (error) { alert(`មានបញ្ហាក្នុងការបកប្រែអត្ថបទ៖ ${error.message}`); }
-    };
-
-    const populateQuestionFromData = (qData) => { const node = $('#question-template').content.cloneNode(true); const qIndex = $('#questions-container').children.length; node.querySelector('h4').textContent = `Question ${qIndex + 1}`; node.querySelectorAll('input[type="radio"]').forEach(r => r.name = `correct_answer_${qIndex}`); node.querySelector('.question-text').value = qData.question || ''; node.querySelectorAll('.answer-text').forEach((input, i) => input.value = qData.options[i] || ''); if (qData.correct_answer_index !== undefined) node.querySelector(`input[value="${qData.correct_answer_index}"]`).checked = true; const preview = node.querySelector('.question-image-preview'); const removeBtn = node.querySelector('.remove-image-btn'); if (qData.imageUrl) { preview.src = qData.imageUrl; preview.style.display = 'block'; removeBtn.style.display = 'inline-block'; } $('#questions-container').appendChild(node); };
-    async function uploadQuestionImage(file) { if (!file) return null; const filePath = `question_images/${Date.now()}_${file.name}`; const fileRef = storage.ref(filePath); await fileRef.put(file); return await fileRef.getDownloadURL(); }
-    
+    // --- 8. FIX: Save System (NO STUCK) ---
     const handleSaveQuiz = async () => {
-        const saveButton = $('#save-quiz-btn'); saveButton.disabled = true; saveButton.innerHTML = "កំពុងរក្សាទុក...";
+        const saveButton = $('#save-quiz-btn');
+        if (!saveButton) return;
+        const originalText = saveButton.innerHTML;
+        
         try {
-            const title = $('#quiz-title').value.trim(); if (!title) throw new Error('សូមបញ្ចូលចំណងជើងកម្រងសំណួរ។');
-            const editors = $$('#questions-container .question-editor'); if (editors.length === 0) throw new Error('សូមបន្ថែមយ៉ាងហោចណាស់មួយសំណួរ។');
+            const title = $('#quiz-title').value.trim();
+            if (!title) { alert('សូមបញ្ចូលចំណងជើងកម្រងសំណួរ!'); return; }
+            
+            const editors = $$('#questions-container .question-editor');
+            if (editors.length === 0) { alert('សូមបន្ថែមយ៉ាងហោចណាស់មួយសំណួរ!'); return; }
 
-            let questions = []; const uploadTasks = [];
+            saveButton.disabled = true;
+            saveButton.innerHTML = "⌛ កំពុងរក្សាទុក...";
+
+            let questions = [];
+            
             for (const [i, e] of editors.entries()) {
                 const text = e.querySelector('.question-text').value.trim();
                 const answers = Array.from(e.querySelectorAll('.answer-text')).map(inp => inp.value.trim());
-                const correct = e.querySelector('input[type="radio"]:checked');
-                if (!text || answers.some(a => !a) || !correct) throw new Error(`កំហុសនៅសំណួរទី ${i+1}`);
-                const imageFile = e.querySelector('.question-image-upload').files[0];
-                const preview = e.querySelector('.question-image-preview'); let imageUrl = null;
-                if (preview.style.display !== 'none' && preview.src && preview.src.startsWith('http')) imageUrl = preview.src;
-                if (imageFile) uploadTasks.push({ file: imageFile, questionIndex: i });
-                questions.push({ text, answers, correct: parseInt(correct.value), imageUrl });
+                const correctRadio = e.querySelector('input[type="radio"]:checked');
+
+                if (!text || answers.some(a => !a) || !correctRadio) {
+                    saveButton.disabled = false;
+                    saveButton.innerHTML = originalText;
+                    alert(`សំណួរទី ${i + 1} មិនទាន់បំពេញគ្រប់ ឬអត់ទាន់ Tick ចម្លើយ!`);
+                    return; 
+                }
+
+                questions.push({
+                    text: text,
+                    answers: answers,
+                    correct: parseInt(correctRadio.value),
+                    imageUrl: null 
+                });
             }
 
-            if (uploadTasks.length > 0) {
-                showNotification(`កំពុងបង្ហោះរូបភាព...`); 
-                const uploadPromises = uploadTasks.map(task => uploadQuestionImage(task.file));
-                const downloadedUrls = await Promise.all(uploadPromises);
-                uploadTasks.forEach((task, index) => { questions[task.questionIndex].imageUrl = downloadedUrls[index]; });
-            }
+            const quizId = `quiz_${Date.now()}`;
+            const newQuiz = { 
+                id: quizId,
+                title: title,
+                questions: questions, 
+                createdBy: app.currentUser ? app.currentUser.email : 'Admin',
+                createdAt: Date.now()
+            };
 
-            const newQuiz = { id: `quiz_${Date.now()}`, title, questions, createdBy: app.currentUser.email };
-            await db.ref('quizzes/' + newQuiz.id).set(newQuiz);
-            alert('រក្សាទុកបានជោគជ័យ!'); $('#quiz-title').value = ''; $('#questions-container').innerHTML = ''; $('#bot-text-input').value = ''; $('#file-list').innerHTML = ''; $('#bot-image-upload').value = ''; $('#ai-paste-area').value = ''; $('#admin-chat-history').innerHTML = ''; updateAdminUI();
-        } catch (error) { alert(`បរាជ័យ: ${error.message}`); } finally { saveButton.disabled = false; saveButton.innerHTML = "រក្សាទុកកម្រងសំណួរ"; }
+            await db.ref('quizzes/' + quizId).set(newQuiz);
+            
+            alert('រក្សាទុកបានជោគជ័យ! ✅');
+            $('#quiz-title').value = '';
+            $('#questions-container').innerHTML = '';
+            $('#bot-text-input').value = '';
+            $('#admin-chat-history').innerHTML = '';
+            if (typeof updateAdminUI === 'function') updateAdminUI();
+            
+        } catch (error) {
+            console.error("Save Error:", error);
+            alert("រក្សាទុកបរាជ័យ: " + error.message);
+        } finally {
+            saveButton.disabled = false;
+            saveButton.innerHTML = originalText;
+        }
     };
 
-    // --- 12. Lobby Flow ---
+    // --- 9. Game Logic (Lobby & Game Loop) ---
     const joinRoom = (roomId) => { 
         const room = app.rooms.find(r => r.id === roomId); 
         if (!room) return forceGoHome("រកបន្ទប់មិនឃើញ។"); 
@@ -356,7 +469,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const handleStartGameClick = () => { db.ref('rooms/' + app.currentRoomId).once('value', snapshot => { const room = snapshot.val(); if (room && room.host === app.currentUser.email) { let initialScores = {}; if (room.players) { Object.keys(room.players).forEach(playerKey => { initialScores[playerKey] = 0; }); } db.ref('rooms/' + app.currentRoomId).update({ status: 'active', scores: initialScores }); } }); };
     
-    // --- 13. Game Engine Loop ---
     const startGame = () => { 
         localStorage.removeItem('quiz9b_gameState'); 
         app.currentQuiz = app.quizzes.find(q => q.id === app.rooms.find(r=>r.id===app.currentRoomId).quizId);
@@ -473,7 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const showFeedback = (correct, points) => { const fb = $('#game-feedback-overlay'); fb.style.animation = 'none'; fb.offsetHeight; fb.style.animation = null; fb.style.display = 'flex'; if (correct === true) { $('#feedback-text').textContent = 'ត្រឹមត្រូវ!'; $('#feedback-text').style.color = 'var(--correct-green)'; $('#feedback-points').textContent = `+${points}`; } else if (correct === false) { $('#feedback-text').textContent = 'ខុសហើយ!'; $('#feedback-text').style.color = 'var(--incorrect-red)'; $('#feedback-points').textContent = ''; } else { $('#feedback-text').textContent = "អស់ម៉ោង!"; $('#feedback-text').style.color = 'var(--answer-orange)'; $('#feedback-points').textContent = `+${points}`; } };
     const updateLiveRank = () => { if (!app.currentUser) return; const room = app.rooms.find(r => r.id === app.currentRoomId); if (!room || !room.scores) return; const sortedScores = Object.entries(room.scores).sort((a, b) => b[1] - a[1]); const myRank = sortedScores.findIndex(entry => entry[0] === encodeEmail(app.currentUser.email)) + 1; $('#live-rank-display').textContent = `Rank: ${myRank > 0 ? myRank : '--'}`; $('#player-score').textContent = app.gameState.score || 0; };
     
-    // --- 14. End Game Routing ---
+    // --- 11. End Game Routing ---
     const endGame = () => { 
         localStorage.removeItem('quiz9b_gameState'); 
         const room = app.rooms.find(r => r.id === app.currentRoomId);
@@ -501,25 +613,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if ($('#answer-review-container').innerHTML === '') { (app.gameState.playerAnswers || []).forEach(ans => { $('#answer-review-container').innerHTML += `<div class="review-item ${ans.isCor ? 'correct' : 'incorrect'}"><p><strong>${ans.qText}</strong></p><p>ចម្លើយរបស់អ្នក៖ ${ans.sel}</p>${!ans.isCor ? `<p>ចម្លើយត្រឹមត្រូវ៖ ${ans.cor}</p>` : ''}</div>`; }); }
     };
     
-    // --- 15. Event Registration ---
+    // --- 12. Event Registration ---
     function addEventListeners() {
         document.body.addEventListener('click', e => {
             const target = e.target;
             if (target.matches('#show-login-btn') || target.matches('#back-to-login-link')) { e.preventDefault(); showView('login'); }
-            if (target.matches('#go-to-signup-btn') || target.matches('.back-to-home-link')) { e.preventDefault(); showView('signup'); }
+            if (target.matches('#go-to-signup-btn')) { e.preventDefault(); showView('signup'); }
+            if (target.matches('.back-to-home-link')) { e.preventDefault(); handleGuestLogin(); }
+            
             if (target.matches('#logout-btn')) handleLogout();
             if (target.matches('#admin-panel-btn')) { showView('admin'); updateAdminUI(); }
             if (target.matches('#login-btn')) handleLogin();
             if (target.matches('#back-to-home-admin-btn') || target.matches('#back-to-home-from-leaderboard-btn') || target.matches('#back-to-home-from-test-btn')) goHome();
             if (target.matches('#signup-btn')) handleSignup();
             
-            if (target.matches('#add-question-btn')) populateQuestionFromData({ options: [] });
+            if (target.matches('#add-question-btn')) {
+                const container = $('#questions-container');
+                const template = $('#question-template').content.cloneNode(true);
+                const idx = container.children.length;
+                template.querySelectorAll('input[type="radio"]').forEach(r => r.name = `correct_answer_${idx}`);
+                container.appendChild(template);
+            }
             if (target.matches('#save-quiz-btn')) handleSaveQuiz();
-            if (target.matches('#bot-image-create-btn')) handleImageBotCreate();
             if (target.matches('#bot-text-create-btn')) handleTextBotCreate();
-            if (target.matches('#parse-ai-paste-btn')) handlePasteAndParseAIQuiz();
             
-            // OWNER: Toggle Admins Role
             if (target.closest('.toggle-admin-btn')) {
                 const userEmail = target.closest('.toggle-admin-btn').dataset.email;
                 const user = app.users.find(u => u.email === userEmail);
@@ -528,7 +645,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (target.closest('.ban-user-btn')) { const userEmail = target.closest('.ban-user-btn').dataset.userEmail; const user = app.users.find(u => u.email === userEmail); if(user) { db.ref('users/' + encodeEmail(userEmail) + '/banned').set(!user.banned); } }
             
-            // ADMIN: Host LIVE Game
             if (target.closest('.host-quiz-btn')) { 
                 const quizId = target.closest('.host-quiz-btn').dataset.quizId; 
                 const room = { id: `room_${Date.now()}`, quizId, host: app.currentUser.email, status: 'waiting', isTest: false, players: {}, scores: {} }; 
@@ -537,7 +653,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 showModal("បន្ទប់ត្រូវបានបង្កើត!", `<div class="link-container" style="display:flex;gap:10px;"><input id="room-link-input" class="input" type="text" value="${joinLink}" style="flex:1;" readonly><button id="copy-link-btn" class="magic-btn" style="width:auto;margin:0;padding:0 20px !important;">ចម្លង</button></div><button id='modal-ok-btn' class="magic-btn mt-20">ចូលរួមបន្ទប់ឥឡូវនេះ</button>`, () => joinRoom(room.id)); 
             }
             
-            // ADMIN: Host MONTHLY TEST
             if (target.closest('.host-test-btn')) { 
                 const quizId = target.closest('.host-test-btn').dataset.quizId; 
                 const room = { id: `test_${Date.now()}`, quizId, host: app.currentUser.email, status: 'active', isTest: true, players: {}, scores: {} }; 
@@ -548,8 +663,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (target.closest('.delete-quiz-btn')) { if (confirm('តើអ្នកពិតជាចង់លុបកម្រងសំណួរនេះមែនទេ?')) { const quizId = target.closest('.delete-quiz-btn').dataset.quizId; db.ref('quizzes/' + quizId).remove(); } }
             if (target.closest('.remove-question-btn')) target.closest('.question-editor').remove();
-            if (target.closest('.image-upload-label')) { target.closest('.image-upload-label').querySelector('input').click(); }
-            if (target.matches('.remove-image-btn')) { const editor = target.closest('.question-editor'); const preview = editor.querySelector('.question-image-preview'); const uploader = editor.querySelector('.question-image-upload'); preview.src = ''; preview.style.display = 'none'; uploader.value = ''; target.style.display = 'none'; }
             if (target.matches('#lobby-copy-link-btn')) { const linkInput = $('#lobby-join-link-input'); linkInput.select(); document.execCommand('copy'); showNotification('បានចម្លង Link!'); }
             if (target.matches('#copy-link-btn')) { const linkInput = $('#room-link-input'); linkInput.select(); document.execCommand('copy'); showNotification('បានចម្លង Link!'); }
             
@@ -561,11 +674,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (target.matches('#powerup-shield-btn') || target.closest('#powerup-shield-btn')) usePowerUp('shield');
             const answerBtn = target.closest('.answer-btn'); if (answerBtn && !answerBtn.disabled) handleAnswer({ currentTarget: answerBtn });
         });
-        
-        document.body.addEventListener('change', e => {
-            if (e.target.matches('.question-image-upload')) { const file = e.target.files[0]; if(file){ const editor = e.target.closest('.question-editor'); const preview = editor.querySelector('.question-image-preview'); const removeBtn = editor.querySelector('.remove-image-btn'); preview.src = URL.createObjectURL(file); preview.style.display = 'block'; removeBtn.style.display = 'inline-block'; } }
-        });
-        $('#bot-image-upload').addEventListener('change', () => { const fileList = $('#file-list'); fileList.innerHTML = ''; Array.from($('#bot-image-upload').files).forEach(f => fileList.innerHTML += `<p>${f.name}</p>`); });
     }
 
     init();
