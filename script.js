@@ -256,39 +256,45 @@ document.addEventListener('DOMContentLoaded', () => {
         try { const aiResultText = await puter.ai.chat(PROMPT, { model: 'gemini-3-flash-preview' }); if ($('#quiz-title').value.trim() === '') $('#quiz-title').value = textInput.substring(0, 30); processAIResult(aiResultText, PROMPT); } catch (error) { alert(`AI Error: ${error.message}`); } finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
     };
 
-    const processAIResult = (aiResultText, prompt) => {
-        app.aiConversationHistory = `System: ${prompt}\n\nAssistant: ${aiResultText}`;
-        try {
-            // ១. កែសម្រួល៖ បង្កើត Logic ដើម្បីស្វែងរក JSON បើទោះជា AI ថែមអក្សរពន្យល់ក៏ដោយ
-            let cleanedText = aiResultText.trim();
+   const processAIResult = (aiResultText, prompt) => {
+    try {
+        if (!aiResultText) throw new Error("AI មិនបានបញ្ជូនទិន្នន័យមកទេ។");
+        
+        let aiResult;
+        
+        // បើ Puter បញ្ជូនមកជា Object រួចស្រេច
+        if (typeof aiResultText === 'object') {
+            aiResult = aiResultText;
+        } else {
+            // បើជា String: ប្រើ Regular Expression ដើម្បីកាត់យកតែដុំ { ... }
+            // វិធីនេះទោះ AI និយាយអក្សរផ្សេងក៏អត់ Error ដែរ
+            const jsonMatch = aiResultText.match(/\{[\s\S]*\}/);
             
-            // បើ AI ថែមសញ្ញា ```json ... ``` បងត្រូវដកវាចេញ
-            if (cleanedText.includes("```")) {
-                const parts = cleanedText.split("```");
-                for (const part of parts) {
-                    if (part.includes("{") && part.includes("questions")) {
-                        cleanedText = part.replace("json", "").trim();
-                        break;
-                    }
-                }
+            if (!jsonMatch) {
+                console.error("Raw AI Response:", aiResultText);
+                throw new Error("រកមិនឃើញទម្រង់ JSON ក្នុងចម្លើយ AI ទេ។");
             }
-
-            const aiResult = JSON.parse(cleanedText);
             
-            if (aiResult && aiResult.questions) {
-                if ($('#quiz-title').value.trim() === '') $('#quiz-title').value = "AI Quiz";
-                $('#questions-container').innerHTML = '';
-                aiResult.questions.forEach(q => populateQuestionFromData(q));
-                showNotification("AI បង្កើតសំណួរជោគជ័យ!"); 
-                $('#refine-ai-btn').style.display = 'block';
-            } else {
-                throw new Error("ទម្រង់ទិន្នន័យមិនត្រឹមត្រូវ");
-            }
-        } catch (e) {
-            console.error("AI Parsing Error:", e, aiResultText);
-            alert("AI parsing failed: AI ឆ្លើយតបមកខុសទម្រង់។ សូមព្យាយាមម្ដងទៀត ឬឆែកមើល Prompt របស់បង។");
+            // លុបចោលនូវសញ្ញា ```json ឬអក្សរដែលនៅសល់
+            let cleanJson = jsonMatch[0].replace(/```json|```/g, "").trim();
+            aiResult = JSON.parse(cleanJson);
         }
-    };
+
+        // ត្រួតពិនិត្យសំណួរ
+        if (aiResult && aiResult.questions && Array.isArray(aiResult.questions)) {
+            $('#questions-container').innerHTML = '';
+            aiResult.questions.forEach(q => populateQuestionFromData(q));
+            showNotification("AI Success! បង្កើតសំណួរបានជោគជ័យ។");
+            $('#refine-ai-btn').style.display = 'block';
+            app.aiConversationHistory = `Assistant: ${JSON.stringify(aiResult)}`;
+        } else {
+            throw new Error("ទិន្នន័យ AI មិនមានសំណួរត្រឹមត្រូវទេ។");
+        }
+    } catch (e) {
+        console.error("AI Error Details:", e, aiResultText);
+        alert("AI parsing failed: " + e.message + "\nសូមព្យាយាមម្ដងទៀត។");
+    }
+};
 
     const handlePasteAndParseAIQuiz = () => {
         const pasteArea = $('#ai-paste-area'); let rawText = pasteArea.value.trim(); if (!rawText) return alert('សូមបិទភ្ជាប់អត្ថបទពី AI ជាមុនសិន។');
