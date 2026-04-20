@@ -259,9 +259,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const processAIResult = (aiResultText, prompt) => {
         app.aiConversationHistory = `System: ${prompt}\n\nAssistant: ${aiResultText}`;
         try {
-            const cleanedText = aiResultText.replace(/```json/g, '').replace(/```/g, '').trim(); const aiResult = JSON.parse(cleanedText);
-            if (aiResult && aiResult.questions) { if ($('#quiz-title').value.trim() === '') $('#quiz-title').value = "AI Quiz"; $('#questions-container').innerHTML = ''; aiResult.questions.forEach(q => populateQuestionFromData(q)); alert("AI ជោគជ័យ!"); $('#refine-ai-btn').style.display = 'block'; } else throw new Error("Invalid JSON.");
-        } catch (e) { alert("AI parsing failed."); }
+            // ១. កែសម្រួល៖ បង្កើត Logic ដើម្បីស្វែងរក JSON បើទោះជា AI ថែមអក្សរពន្យល់ក៏ដោយ
+            let cleanedText = aiResultText.trim();
+            
+            // បើ AI ថែមសញ្ញា ```json ... ``` បងត្រូវដកវាចេញ
+            if (cleanedText.includes("```")) {
+                const parts = cleanedText.split("```");
+                for (const part of parts) {
+                    if (part.includes("{") && part.includes("questions")) {
+                        cleanedText = part.replace("json", "").trim();
+                        break;
+                    }
+                }
+            }
+
+            const aiResult = JSON.parse(cleanedText);
+            
+            if (aiResult && aiResult.questions) {
+                if ($('#quiz-title').value.trim() === '') $('#quiz-title').value = "AI Quiz";
+                $('#questions-container').innerHTML = '';
+                aiResult.questions.forEach(q => populateQuestionFromData(q));
+                showNotification("AI បង្កើតសំណួរជោគជ័យ!"); 
+                $('#refine-ai-btn').style.display = 'block';
+            } else {
+                throw new Error("ទម្រង់ទិន្នន័យមិនត្រឹមត្រូវ");
+            }
+        } catch (e) {
+            console.error("AI Parsing Error:", e, aiResultText);
+            alert("AI parsing failed: AI ឆ្លើយតបមកខុសទម្រង់។ សូមព្យាយាមម្ដងទៀត ឬឆែកមើល Prompt របស់បង។");
+        }
     };
 
     const handlePasteAndParseAIQuiz = () => {
