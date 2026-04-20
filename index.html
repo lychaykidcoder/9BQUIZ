@@ -78,6 +78,21 @@
             <header><h1>ផ្ទាំងគ្រប់គ្រង</h1><button id="back-to-home-admin-btn" class="secondary-btn" style="width:auto;">ត្រលប់ទៅទំព័រដើម</button></header>
             <div class="admin-sections">
                 <div class="admin-section create-quiz-section">
+                    <hr>
+                    <div class="bot-section">
+                        <h4 style="color:#cf30aa;">🤖 Chat ផ្ទាល់ជាមួយ AI (ជួសជុល & បន្ថែមសំណួរ)</h4>
+                        <p style="font-size: 0.8rem; color: #c0b9c0; margin-bottom: 10px;">ប្រើកន្លែងនេះបើ AI អត់ព្រមចេញសំណួរ ឬខុសវេយ្យាករណ៍។</p>
+                        
+                        <div id="admin-chat-history" class="chat-box">
+                            <div class="chat-msg bot-msg">សួស្តី! ខ្ញុំរង់ចាំនៅទីនេះ។ បើមានបញ្ហា Error អ្វីមួយ ខ្ញុំនឹងបង្ហាញចម្លើយដើមនៅទីនេះ ដើម្បីឱ្យអ្នកអាចប្រាប់ខ្ញុំឱ្យកែតម្រូវបាន។</div>
+                        </div>
+                        
+                        <div style="display:flex; gap:10px; margin-top:10px;">
+                            <textarea id="admin-chat-input" class="input" style="flex:1; margin:0;" placeholder="ប្រាប់ AI ឱ្យកែសំណួរ ឬសរសេរឡើងវិញ..." rows="2"></textarea>
+                            <button id="admin-chat-send-btn" class="magic-btn" style="width:auto; margin:0;">ផ្ញើ</button>
+                        </div>
+                        <button id="admin-chat-extract-btn" class="secondary-btn mt-10" style="width:100%; border-color:#00b894; color:#00b894;">ទាញយកសំណួរពីការសន្ទនា (Extract JSON) ⬇️</button>
+                    </div>
                     <h3>បង្កើតកម្រងសំណួរថ្មី</h3>
                     <div class="form-group"><input type="text" id="quiz-title" placeholder="ចំណងជើងកម្រងសំណួរ"></div>
                     <hr>
