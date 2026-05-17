@@ -326,7 +326,34 @@ document.addEventListener('DOMContentLoaded', () => {
         finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
     };
 
-    // --- 8. FIX: Save System ---
+    // 🚀 FIX: The missing send button function!
+    const handleAdminChatSend = async () => {
+        const inputEl = $('#admin-chat-input');
+        if (!inputEl) return;
+        const msg = inputEl.value.trim();
+        if (!msg) return;
+
+        appendToChat('user', msg);
+        inputEl.value = '';
+        
+        const sendBtn = $('#admin-chat-send-btn');
+        if (sendBtn) sendBtn.disabled = true;
+        
+        const PROMPT = `User says: "${msg}". Please respond and if you generate a quiz, use this JSON format: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
+        
+        app.aiConversationHistory += `\nUser: ${PROMPT}\nAssistant: `;
+
+        try {
+            const response = await puter.ai.chat(app.aiConversationHistory, { model: 'gemini-3-flash-preview' });
+            processAIResponseForChat(response, null);
+        } catch (err) { 
+            appendToChat('bot', `Error: ${err.message}`); 
+        } finally { 
+            if (sendBtn) sendBtn.disabled = false; 
+        }
+    };
+
+    // --- 8. Save System ---
     const handleSaveQuiz = async () => {
         const saveButton = $('#save-quiz-btn');
         if (!saveButton) return;
@@ -391,9 +418,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 9. FIX 1: The Invite Link Bug ---
+    // --- 9. Game Logic (Lobby & Game Loop) ---
     const joinRoom = (roomId) => { 
-        // We fetch directly from the DB so the link works INSTANTLY even on a fresh page load
         db.ref('rooms/' + roomId).once('value', snapshot => {
             const room = snapshot.val();
             if (!room) return forceGoHome("បន្ទប់នេះមិនមានទេ ឬត្រូវបានបិទបាត់ទៅហើយ។ (Invalid Room)");
@@ -510,7 +536,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 10. FIX 2: Correct Answer JUMP Style ---
     const handleAnswer = (e) => {
         clearTimeout(app.questionTimer); 
         const selIdx = parseInt(e.currentTarget.dataset.index); const q = app.currentQuiz.questions[app.currentQuestionIndex]; if (!q) return;
@@ -529,10 +554,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        // This targets the specific button that IS the correct answer
+        // --- FIX 2: Correct Answer JUMP Style ---
         const correctBtn = $$('#answer-options-container .answer-btn')[q.correct];
         if (correctBtn) {
-            // Force the jump, glow, and green color via inline CSS
             correctBtn.style.backgroundColor = '#00ce7a';
             correctBtn.style.color = '#fff';
             correctBtn.style.transform = 'scale(1.05) translateY(-8px)';
@@ -542,7 +566,6 @@ document.addEventListener('DOMContentLoaded', () => {
             correctBtn.style.zIndex = '10';
         }
 
-        // If the user clicked the WRONG answer, make their choice sink and turn red
         if (!isCorrect) {
             e.currentTarget.style.backgroundColor = '#ff4757';
             e.currentTarget.style.color = '#fff';
@@ -633,6 +656,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (target.matches('#save-quiz-btn')) handleSaveQuiz();
             if (target.matches('#bot-text-create-btn')) handleTextBotCreate();
+            
+            // 🚀 BUG FIXED: Re-added the AI Chat Send Button listener!
+            if (target.matches('#admin-chat-send-btn') || target.closest('#admin-chat-send-btn')) {
+                handleAdminChatSend();
+            }
             
             if (target.closest('.toggle-admin-btn')) {
                 const userEmail = target.closest('.toggle-admin-btn').dataset.email;
