@@ -1,24 +1,23 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Firebase Configuration ---
     const firebaseConfig = {
-  apiKey: "AIzaSyBdAhFRyJ0BX3a45A-998vRbFU4yd0gg8U",
-  authDomain: "web-quiz-9b-2026.firebaseapp.com",
-  projectId: "web-quiz-9b-2026",
-  storageBucket: "web-quiz-9b-2026.firebasestorage.app",
-  messagingSenderId: "317165822224",
-  appId: "1:317165822224:web:fdad312e717a075c390595",
-  measurementId: "G-785XVL731J"
-};
+        apiKey: "AIzaSyBdAhFRyJ0BX3a45A-998vRbFU4yd0gg8U",
+        authDomain: "web-quiz-9b-2026.firebaseapp.com",
+        projectId: "web-quiz-9b-2026",
+        storageBucket: "web-quiz-9b-2026.firebasestorage.app",
+        messagingSenderId: "317165822224",
+        appId: "1:317165822224:web:fdad312e717a075c390595",
+        measurementId: "G-785XVL731J"
+    };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // --- 2. Global State & Prompt ថ្មី (បង្ខំអោយ Random និងមាន Title) ---
+    // --- 2. Global State & Prompt ---
     const AVATAR_LIST = ['download.jpg', 'spider.jpg', 'gojo.jpg', 'tungtungsahur.jpg', 'giyu.jpg', 'tanjiro.jpg', 'shinobu.jpg', 'shinobou.jpg'];
     const app = {
         users: [], quizzes: [], rooms: [], currentUser: null, currentRoomId: null,
         currentQuiz: null, gameState: {}, questionTimer: null,
         ownerEmail: "lychayzooba@gmail.com", 
-        // វាយខ្នោះ AI: បង្ខំអោយ Random លេខ Index ចម្លើយត្រូវ (0,1,2,3) និងត្រូវតែមានចំណងជើង (title)
         aiConversationHistory: "System: You are an expert Quiz Creator. OUTPUT STRICTLY IN JSON. Rules:\n1. 'correct_answer_index' MUST BE RANDOMIZED (0, 1, 2, or 3) for each question.\n2. Must include a 'title' for the quiz.\n3. Exact Format: {\"title\": \"[Khmer Title]\", \"questions\": [{\"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"], \"correct_answer_index\": <random 0-3>}]}" 
     };
     let dataLoaded = false;
@@ -63,10 +62,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
 
+        // FIX: Handle invite links properly whether logged in or out
         if (!app.currentUser) {
-            if (roomId) handleGuestLogin(roomId); else showView('login');
+            if (roomId) handleGuestLogin(roomId); 
+            else showView('login');
         } else {
-            showView('home'); updateHomeUI();
+            if (roomId) joinRoom(roomId); // Force join if clicking link while logged in
+            else { showView('home'); updateHomeUI(); }
         }
         
         db.ref('users').on('value', s => { 
@@ -112,7 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const forceGoHome = (message) => { showModal("System Notice", `<p>${message}</p><button id='modal-ok-btn' class='magic-btn mt-20'>យល់ព្រម</button>`, goHome); };
     const goHome = () => { app.currentRoomId = null; app.currentQuiz = null; localStorage.removeItem('quiz9b_gameState'); if (window.location.search) window.history.pushState({}, '', window.location.pathname); showView('home'); updateHomeUI(); };
 
-    // --- 5. Auth & Guest Login (Username Only) ---
+    // --- 5. Auth & Guest Login ---
     const handleLogout = () => { app.currentUser = null; app.currentRoomId = null; localStorage.clear(); showView('login'); };
     const handleLogin = () => { 
         const e = $('#login-email').value.trim(); const p = $('#login-password').value; 
@@ -221,7 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 7. ✨ AI CHAT, AUTO-TITLE, & AUTO-TICK SYSTEM ✨ ---
+    // --- 7. AI CHAT & AUTO-TICK SYSTEM ---
     const appendToChat = (role, text) => {
         const chatBox = $('#admin-chat-history');
         if(!chatBox) return;
@@ -232,11 +234,9 @@ document.addEventListener('DOMContentLoaded', () => {
         chatBox.scrollTop = chatBox.scrollHeight;
     };
 
-    // មុខងារនេះបញ្ចូលសំណួរចូល Form ទាំងអស់ និងដាក់ចំណងជើងអូតូ
     window.applyChatQuiz = () => {
         if (!window.latestAIQuizQuestions) return alert('គ្មានសំណួរថ្មីទេ!');
         
-        // Auto Fill Title
         const titleInput = $('#quiz-title');
         if (titleInput && window.latestAIQuizTitle && titleInput.value.trim() === '') {
             titleInput.value = window.latestAIQuizTitle;
@@ -244,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         $('#questions-container').innerHTML = ''; 
         window.latestAIQuizQuestions.forEach(q => populateQuestionFromData(q)); 
-        showNotification("ទាញយកសំណួរបានជោគជ័យ! ✅ ចំណងជើង និងចម្លើយត្រូវបញ្ចូលរួចរាល់។"); 
+        showNotification("ទាញយកសំណួរបានជោគជ័យ! ✅"); 
     };
 
     const processAIResponseForChat = (aiResultText, promptContext) => {
@@ -263,29 +263,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (aiResult && (aiResult.questions || aiResult.quiz)) {
                     window.latestAIQuizQuestions = aiResult.questions || aiResult.quiz; 
-                    window.latestAIQuizTitle = aiResult.title || "កម្រងសំណួរ AI"; // ចាប់យក Title
+                    window.latestAIQuizTitle = aiResult.title || "កម្រងសំណួរ AI"; 
                     
                     const chatBox = $('#admin-chat-history');
                     if(chatBox) {
                         const msgDiv = document.createElement('div');
                         msgDiv.className = `chat-msg bot-msg`;
                         msgDiv.innerHTML = `
-                            <div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបង្កើត <b>${window.latestAIQuizQuestions.length} សំណួរ</b> រួចរាល់ហើយ! តើអ្នកចង់យកវាទៅប្រើទេ?</div>
-                            <button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ យល់ព្រម (បញ្ចូលសំណួរ & Auto Tick)</button>
+                            <div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបង្កើត <b>${window.latestAIQuizQuestions.length} សំណួរ</b> រួចរាល់ហើយ!</div>
+                            <button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ យល់ព្រម</button>
                         `;
                         chatBox.appendChild(msgDiv);
                         chatBox.scrollTop = chatBox.scrollHeight;
                     }
                     return; 
                 }
-            } catch (e) { console.warn("JSON parse error (Chat):", e); }
+            } catch (e) { console.warn("JSON parse error"); }
         }
-
         let displayText = actualText.replace(/```json|```/g, "").trim();
         appendToChat('bot', displayText);
     };
 
-    // FIX: AUTO-TICK & FILL INPUTS LOGIC
     const populateQuestionFromData = (qData) => { 
         const template = $('#question-template');
         if(!template) return;
@@ -294,14 +292,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const qIndex = container.children.length; 
         
         node.querySelector('h4').textContent = `Question ${qIndex + 1}`; 
-        // ប្រាកដថាវាចាប់យកពាក្យ question ឬ text (ព្រោះ AI ច្រើនប្រើពាក្យខុសៗគ្នា)
         node.querySelector('.question-text').value = qData.question || qData.text || ''; 
         
-        // ធានាថា Index ចាប់បានត្រឹមត្រូវ
         let correctIdx = qData.correct_answer_index ?? qData.correct ?? qData.answerIndex ?? qData.correctIndex ?? 0;
         correctIdx = parseInt(correctIdx);
-
-        // ទាញយក array ចម្លើយ
         const optionsArray = qData.options || qData.answers || ["", "", "", ""];
 
         node.querySelectorAll('.answer-option').forEach((opt, i) => {
@@ -310,9 +304,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             radio.name = `correct_answer_${qIndex}`;
             radio.value = i;
-            if (i === correctIdx) { radio.checked = true; } // Auto Tick
+            if (i === correctIdx) { radio.checked = true; } 
             
-            // បំពេញចម្លើយចូល Input 
             textInput.value = optionsArray[i] || '';
         });
         
@@ -333,27 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
         finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
     };
 
-    $('#admin-chat-send-btn')?.addEventListener('click', async () => {
-        const inputEl = $('#admin-chat-input');
-        const msg = inputEl.value.trim();
-        if (!msg) return;
-
-        appendToChat('user', msg);
-        inputEl.value = '';
-        $('#admin-chat-send-btn').disabled = true;
-        
-        const PROMPT = `User says: "${msg}". Please respond and if you generate a quiz, use this JSON format: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
-        
-        app.aiConversationHistory += `\nUser: ${PROMPT}\nAssistant: `;
-
-        try {
-            const response = await puter.ai.chat(app.aiConversationHistory, { model: 'gemini-3-flash-preview' });
-            processAIResponseForChat(response, null);
-        } catch (err) { appendToChat('bot', `Error: ${err.message}`); } 
-        finally { $('#admin-chat-send-btn').disabled = false; }
-    });
-
-    // --- 8. FIX: Save System (NO STUCK) ---
+    // --- 8. FIX: Save System ---
     const handleSaveQuiz = async () => {
         const saveButton = $('#save-quiz-btn');
         if (!saveButton) return;
@@ -418,26 +391,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 9. Game Logic (Lobby & Game Loop) ---
+    // --- 9. FIX 1: The Invite Link Bug ---
     const joinRoom = (roomId) => { 
-        const room = app.rooms.find(r => r.id === roomId); 
-        if (!room) return forceGoHome("រកបន្ទប់មិនឃើញ។"); 
-        if (!room.isTest && room.status !== 'waiting') return alert('ហ្គេមនៅក្នុងបន្ទប់នេះបានចាប់ផ្តើមបាត់ទៅហើយ។'); 
-        
-        app.currentRoomId = roomId; 
-        const encodedPlayerEmail = encodeEmail(app.currentUser.email); 
-        const playerRef = db.ref(`rooms/${roomId}/players/${encodedPlayerEmail}`); 
-        
-        playerRef.once('value', snapshot => { 
-            let playerInfo = snapshot.val(); 
-            if (!playerInfo) { 
-                playerInfo = { email: app.currentUser.email, username: app.currentUser.username, avatarUrl: AVATAR_LIST[Math.floor(Math.random() * AVATAR_LIST.length)] }; 
-                playerRef.set(playerInfo); 
-            } 
-            showView('lobby'); 
-            setupLobby(playerInfo); 
-            updateLobbyUI(room); 
-        }); 
+        // We fetch directly from the DB so the link works INSTANTLY even on a fresh page load
+        db.ref('rooms/' + roomId).once('value', snapshot => {
+            const room = snapshot.val();
+            if (!room) return forceGoHome("បន្ទប់នេះមិនមានទេ ឬត្រូវបានបិទបាត់ទៅហើយ។ (Invalid Room)");
+            if (!room.isTest && room.status !== 'waiting') return forceGoHome('ហ្គេមនៅក្នុងបន្ទប់នេះបានចាប់ផ្តើមបាត់ទៅហើយ។');
+            
+            app.currentRoomId = roomId; 
+            const encodedPlayerEmail = encodeEmail(app.currentUser.email); 
+            const playerRef = db.ref(`rooms/${roomId}/players/${encodedPlayerEmail}`); 
+            
+            playerRef.once('value', pSnapshot => { 
+                let playerInfo = pSnapshot.val(); 
+                if (!playerInfo) { 
+                    playerInfo = { email: app.currentUser.email, username: app.currentUser.username, avatarUrl: AVATAR_LIST[Math.floor(Math.random() * AVATAR_LIST.length)] }; 
+                    playerRef.set(playerInfo); 
+                } 
+                showView('lobby'); 
+                setupLobby(playerInfo); 
+                updateLobbyUI(room); 
+            }); 
+        });
     };
 
     const setupLobby = (playerInfo) => { $('#player-username-display').textContent = playerInfo.username; const avatarGrid = $('#avatar-selection'); avatarGrid.innerHTML = ''; AVATAR_LIST.forEach((url) => { const img = document.createElement('img'); img.src = url; img.className = 'avatar-option'; if (url === playerInfo.avatarUrl) { img.classList.add('selected'); $('#player-avatar-display').src = url; } img.onclick = () => { const selected = $('.avatar-option.selected'); if (selected) selected.classList.remove('selected'); img.classList.add('selected'); $('#player-avatar-display').src = img.src; db.ref(`rooms/${app.currentRoomId}/players/${encodeEmail(app.currentUser.email)}/avatarUrl`).set(img.src); }; avatarGrid.appendChild(img); }); };
@@ -534,6 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- 10. FIX 2: Correct Answer JUMP Style ---
     const handleAnswer = (e) => {
         clearTimeout(app.questionTimer); 
         const selIdx = parseInt(e.currentTarget.dataset.index); const q = app.currentQuiz.questions[app.currentQuestionIndex]; if (!q) return;
@@ -552,7 +529,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
-        e.currentTarget.classList.add(isCorrect ? 'correct' : 'incorrect'); if(!isCorrect && q.correct >= 0 && $$('#answer-options-container .answer-btn')[q.correct]) { $$('#answer-options-container .answer-btn')[q.correct].classList.add('correct'); }
+        // This targets the specific button that IS the correct answer
+        const correctBtn = $$('#answer-options-container .answer-btn')[q.correct];
+        if (correctBtn) {
+            // Force the jump, glow, and green color via inline CSS
+            correctBtn.style.backgroundColor = '#00ce7a';
+            correctBtn.style.color = '#fff';
+            correctBtn.style.transform = 'scale(1.05) translateY(-8px)';
+            correctBtn.style.boxShadow = '0 10px 25px rgba(0, 206, 122, 0.6)';
+            correctBtn.style.border = '2px solid #fff';
+            correctBtn.style.transition = 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+            correctBtn.style.zIndex = '10';
+        }
+
+        // If the user clicked the WRONG answer, make their choice sink and turn red
+        if (!isCorrect) {
+            e.currentTarget.style.backgroundColor = '#ff4757';
+            e.currentTarget.style.color = '#fff';
+            e.currentTarget.style.transform = 'scale(0.95)';
+            e.currentTarget.style.opacity = '0.7';
+        }
+        
         app.gameState.playerAnswers.push({ qText: q.text, sel: q.answers[selIdx], cor: q.answers[q.correct], isCor: isCorrect });
         localStorage.setItem('quiz9b_gameState', JSON.stringify({ roomId: app.currentRoomId, state: app.gameState }));
         db.ref(`rooms/${app.currentRoomId}/scores/${encodeEmail(app.currentUser.email)}`).set(app.gameState.score);
