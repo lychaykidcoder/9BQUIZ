@@ -12,80 +12,68 @@ document.addEventListener('DOMContentLoaded', () => {
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    // --- 2. Global State & Prompt ---
+    // --- 2. Global State ---
     const AVATAR_LIST = ['download.jpg', 'spider.jpg', 'gojo.jpg', 'tungtungsahur.jpg', 'giyu.jpg', 'tanjiro.jpg', 'shinobu.jpg', 'shinobou.jpg'];
     const app = {
         users: [], quizzes: [], rooms: [], currentUser: null, currentRoomId: null,
-        currentQuiz: null, gameState: {}, questionTimer: null,
+        currentQuiz: null, gameState: {}, currentZoom: 16,
         ownerEmail: "lychayzooba@gmail.com", 
-        aiConversationHistory: "System: You are an expert Quiz Creator. OUTPUT STRICTLY IN JSON. Rules:\n1. 'correct_answer_index' MUST BE RANDOMIZED (0, 1, 2, or 3) for each question.\n2. Must include a 'title' for the quiz.\n3. Exact Format: {\"title\": \"[Khmer Title]\", \"questions\": [{\"question\": \"...\", \"options\": [\"...\", \"...\", \"...\", \"...\"], \"correct_answer_index\": <random 0-3>}]}" 
+        aiConversationHistory: "System: You are an expert Quiz Creator. OUTPUT EXACT JSON. Format:\n{\"title\": \"...\", \"questions\": [{\"question\": \"...\", \"options\": [\"...\", \"...\"], \"correct_answer_index\": 0}]}" 
     };
     let dataLoaded = false;
     window.latestAIQuizQuestions = null; 
     window.latestAIQuizTitle = "";
 
-    // --- 3. DOM Selectors ---
-    const $ = (selector) => document.querySelector(selector);
-    const $$ = (selector) => document.querySelectorAll(selector);
+    // --- 3. Base Utilities ---
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
     const views = { login: $('#login-view'), signup: $('#signup-view'), home: $('#home-view'), admin: $('#admin-view'), lobby: $('#quiz-lobby-view'), game: $('#quiz-game-view'), leaderboard: $('#leaderboard-view'), testResult: $('#test-result-view') };
     
-    const showView = (viewName) => { 
-        Object.values(views).forEach(v => { if (v) v.style.display = 'none'; }); 
-        if (views[viewName]) { views[viewName].style.display = ['login', 'signup', 'leaderboard', 'lobby', 'game', 'testResult'].includes(viewName) ? 'flex' : 'block'; } 
-    };
-    
-    const encodeEmail = (email) => email ? email.replace(/\./g, ',') : '';
-    const decodeEmail = (encodedEmail) => encodedEmail ? encodedEmail.replace(/,/g, '.') : '';
-    
-    const showModal = (title, bodyHtml, onOk) => { 
-        const titleEl = $('#modal-title'); const bodyEl = $('#modal-body'); const overlay = $('#modal-overlay');
-        if(titleEl && bodyEl && overlay) {
-            titleEl.textContent = title; bodyEl.innerHTML = bodyHtml; overlay.style.display = 'flex'; 
-            const okButton = $('#modal-ok-btn'); 
-            if (okButton) { okButton.onclick = () => { overlay.style.display = 'none'; if (onOk) onOk(); }; } 
+    // 💥 FIX BUG 1: បិទពន្លត់ View ឱ្យដាច់ស្រឡះ ការពារការលោតជាន់គ្នា (No More Layout Glitch)
+    const showView = (name) => { 
+        Object.keys(views).forEach(key => { 
+            if (views[key]) {
+                views[key].style.setProperty('display', 'none', 'important');
+                views[key].style.visibility = 'hidden';
+            }
+        }); 
+        if (views[name]) {
+            views[name].style.setProperty('display', ['login', 'signup', 'leaderboard', 'lobby', 'game', 'testResult'].includes(name) ? 'flex' : 'block', 'important'); 
+            views[name].style.visibility = 'visible';
         }
     };
     
-    const showNotification = (message, duration = 3000) => { 
-        const notif = $('#global-notification'); 
-        if(notif) { notif.innerHTML = message; notif.style.display = 'block'; setTimeout(() => { if (notif.innerHTML === message) notif.style.display = 'none'; }, duration); }
-    };
+    const encodeEmail = (e) => e ? e.replace(/\./g, ',') : '';
+    const decodeEmail = (e) => e ? e.replace(/,/g, '.') : '';
+    const showModal = (title, bodyHtml, onOk) => { const t = $('#modal-title'); const b = $('#modal-body'); const o = $('#modal-overlay'); if(t && b && o) { t.textContent = title; b.innerHTML = bodyHtml; o.style.display = 'flex'; const ok = $('#modal-ok-btn'); if (ok) { ok.onclick = () => { o.style.display = 'none'; if (onOk) onOk(); }; } } };
+    const showNotification = (msg, dur = 3000) => { const n = $('#global-notification'); if(n) { n.innerHTML = msg; n.style.display = 'block'; setTimeout(() => { if (n.innerHTML === msg) n.style.display = 'none'; }, dur); } };
 
-    // --- 4. Main Initialization ---
+    // --- 4. Main Init ---
     const init = () => {
         addEventListeners();
-        try { 
-            const storedUser = localStorage.getItem('quiz9b_currentUser');
-            app.currentUser = storedUser ? JSON.parse(storedUser) : null; 
-        } catch(e) { app.currentUser = null; }
+        try { const storedUser = localStorage.getItem('quiz9b_currentUser'); app.currentUser = storedUser ? JSON.parse(storedUser) : null; } catch(e) { app.currentUser = null; }
         
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
 
-        // FIX: Handle invite links properly whether logged in or out
-        if (!app.currentUser) {
-            if (roomId) handleGuestLogin(roomId); 
-            else showView('login');
+        if (roomId) {
+            if (!app.currentUser) handleGuestLogin(roomId); 
+            else joinRoom(roomId);
         } else {
-            if (roomId) joinRoom(roomId); // Force join if clicking link while logged in
+            if (!app.currentUser) showView('login');
             else { showView('home'); updateHomeUI(); }
         }
         
         db.ref('users').on('value', s => { 
             app.users = s.val() ? Object.values(s.val()) : []; 
-            const encodedOwner = encodeEmail(app.ownerEmail);
-            if (!app.users.find(u => u.email === app.ownerEmail)) {
-                db.ref('users/' + encodedOwner).set({ username: 'Owner', email: app.ownerEmail, password: '123', isAdmin: true, isOwner: true, banned: false }); 
-            }
+            if (!app.users.find(u => u.email === app.ownerEmail)) db.ref('users/' + encodeEmail(app.ownerEmail)).set({ username: 'Owner', email: app.ownerEmail, password: '123', isAdmin: true, isOwner: true, banned: false }); 
             dataLoaded = true; updateUIbasedOnState(); 
         });
 
         db.ref('quizzes').on('value', s => { app.quizzes = s.val() ? Object.values(s.val()) : []; updateUIbasedOnState(); });
         db.ref('rooms').on('value', s => { 
             app.rooms = s.val() ? Object.values(s.val()) : []; 
-            if (app.currentRoomId && !app.rooms.find(r => r.id === app.currentRoomId) && ($('#quiz-game-view')?.style.display !== 'none' || $('#quiz-lobby-view')?.style.display !== 'none')) { 
-                forceGoHome("បន្ទប់ត្រូវបានបិទដោយ Admin។"); 
-            } 
+            if (app.currentRoomId && !app.rooms.find(r => r.id === app.currentRoomId) && ($('#quiz-game-view')?.style.display !== 'none' || $('#quiz-lobby-view')?.style.display !== 'none')) forceGoHome("បន្ទប់ត្រូវបានបិទដោយ Admin។"); 
             updateUIbasedOnState(); 
         });
     };
@@ -94,612 +82,481 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!dataLoaded) return;
         if ($('#home-view')?.style.display !== 'none') updateHomeUI();
         if ($('#admin-view')?.style.display !== 'none') updateAdminUI();
-
         if (app.currentRoomId) {
             const room = app.rooms.find(r => r.id === app.currentRoomId);
             if (room) {
-                if ($('#quiz-lobby-view')?.style.display !== 'none') {
-                    updateLobbyUI(room);
-                    if (!room.isTest && room.status === 'active' && $('#quiz-game-view')?.style.display === 'none') {
-                        app.currentQuiz = app.quizzes.find(q => q.id === room.quizId);
-                        if (app.currentQuiz) startGame();
-                    }
-                }
-                if ($('#quiz-game-view')?.style.display !== 'none' && !room.isTest) updateLiveRank();
-                if ($('#leaderboard-view')?.style.display !== 'none' && !room.isTest) displayLeaderboard(room);
+                if ($('#quiz-lobby-view')?.style.display !== 'none') updateLobbyUI(room);
             }
         }
     }
 
-    const forceGoHome = (message) => { showModal("System Notice", `<p>${message}</p><button id='modal-ok-btn' class='magic-btn mt-20'>យល់ព្រម</button>`, goHome); };
+    const forceGoHome = (msg) => { showModal("System Notice", `<p>${msg}</p><button id='modal-ok-btn' class='magic-btn mt-20'>យល់ព្រម</button>`, goHome); };
     const goHome = () => { app.currentRoomId = null; app.currentQuiz = null; localStorage.removeItem('quiz9b_gameState'); if (window.location.search) window.history.pushState({}, '', window.location.pathname); showView('home'); updateHomeUI(); };
 
-    // --- 5. Auth & Guest Login ---
+    // --- 5. Auth ---
     const handleLogout = () => { app.currentUser = null; app.currentRoomId = null; localStorage.clear(); showView('login'); };
-    const handleLogin = () => { 
-        const e = $('#login-email').value.trim(); const p = $('#login-password').value; 
-        const user = app.users.find(u => u.email === e && u.password === p); 
-        if (user) { 
-            if (user.banned) return alert('គណនីនេះត្រូវបានបិទ។'); 
-            app.currentUser = { email: user.email, username: user.username, isAdmin: user.isAdmin, isOwner: user.isOwner }; 
-            localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); goHome(); 
-        } else { alert('អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។'); }
-    };
-    const handleSignup = () => { 
-        const u = $('#signup-username').value.trim(); const e = $('#signup-email').value.trim(); const p = $('#signup-password').value; 
-        if (!u || !e || !p) return alert('សូមបំពេញចន្លោះទាំងអស់។'); 
-        if (app.users.find(user => user.email === e)) return alert('អ៊ីមែលនេះមានរួចហើយ។ សូមចូលគណនី។');
-        const isOwner = (e === app.ownerEmail);
-        const newUser = { username: u, email: e, password: p, isAdmin: isOwner, isOwner: isOwner, banned: false }; 
-        const encodedEmail = encodeEmail(e);
-        db.ref('users/' + encodedEmail).set(newUser).then(() => { app.currentUser = { email: e, username: u, isAdmin: newUser.isAdmin, isOwner: newUser.isOwner }; localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); goHome(); });
-    };
+    const handleLogin = () => { const e = $('#login-email').value.trim(); const p = $('#login-password').value; const user = app.users.find(u => u.email === e && u.password === p); if (user) { if (user.banned) return alert('គណនីត្រូវបានបិទ។'); app.currentUser = { email: user.email, username: user.username, isAdmin: user.isAdmin, isOwner: user.isOwner }; localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); goHome(); } else alert('អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ។'); };
+    const handleSignup = () => { const u = $('#signup-username').value.trim(); const e = $('#signup-email').value.trim(); const p = $('#signup-password').value; if (!u || !e || !p) return alert('សូមបំពេញចន្លោះទាំងអស់។'); if (app.users.find(user => user.email === e)) return alert('អ៊ីមែលនេះមានរួចហើយ។'); const isOwner = (e === app.ownerEmail); const newUser = { username: u, email: e, password: p, isAdmin: isOwner, isOwner: isOwner, banned: false }; db.ref('users/' + encodeEmail(e)).set(newUser).then(() => { app.currentUser = { email: e, username: u, isAdmin: newUser.isAdmin, isOwner: newUser.isOwner }; localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); goHome(); }); };
+    const handleGuestLogin = (roomId) => { const guestName = prompt("សូមបញ្ចូលឈ្មោះរបស់អ្នកដើម្បីចូលលេង:"); if (guestName && guestName.trim() !== "") { app.currentUser = { username: guestName.trim(), email: `guest_${Date.now()}@guest.com`, isGuest: true, isAdmin: false, isOwner: false }; localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser)); if (roomId) joinRoom(roomId); else { showView('home'); updateHomeUI(); } } else if(guestName !== null) { alert("សូមបញ្ចូលឈ្មោះជាមុនសិន!"); } };
 
-    const handleGuestLogin = (roomId) => { 
-        const guestName = prompt("សូមបញ្ចូលឈ្មោះរបស់អ្នកដើម្បីចូលលេង:");
-        if (guestName && guestName.trim() !== "") {
-            app.currentUser = { 
-                username: guestName.trim(), 
-                email: `guest_${Date.now()}@guest.com`, 
-                isGuest: true, isAdmin: false, isOwner: false 
-            };
-            localStorage.setItem('quiz9b_currentUser', JSON.stringify(app.currentUser));
-            if (roomId) joinRoom(roomId); else { showView('home'); updateHomeUI(); }
-        } else if(guestName !== null) {
-            alert("សូមបញ្ចូលឈ្មោះជាមុនសិន!");
-        }
-    };
+    // --- 6. UI Renderers ---
+    const updateHomeUI = () => { const c = $('#user-actions'); if (c) { if (app.currentUser && !app.currentUser.isGuest) { c.innerHTML = `<span style="color:white; margin-right:15px;">សួស្តី, <b>${app.currentUser.username}</b></span><button id="logout-btn" class="secondary-btn small-btn">ចាកចេញ</button>${app.currentUser.isAdmin || app.currentUser.isOwner ? '<button id="admin-panel-btn" class="magic-btn small-btn" style="margin-left: 10px; padding:10px 15px !important;">ផ្ទាំង Admin</button>' : ''}`; } else { c.innerHTML = `<button id="show-login-btn" class="magic-btn small-btn" style="padding:10px 15px !important;">ចូលគណនី</button>`; } } renderRooms(); };
+    const renderRooms = (term = "") => { const list = $('#rooms-list'); if(!list) return; list.innerHTML = ''; let available = app.rooms.filter(r => r.status === 'waiting' || (r.isTest && r.status === 'active')); if (term) available = available.filter(room => { const q = app.quizzes.find(q => q.id === room.quizId); const h = app.users.find(u => u.email === room.host); return (q && q.title.toLowerCase().includes(term.toLowerCase())) || (h && h.username.toLowerCase().includes(term.toLowerCase())); }); if (available.length === 0) { list.innerHTML = '<p style="color:#aaa;">មិនមានបន្ទប់កំពុងរង់ចាំទេ។</p>'; return; } available.forEach(room => { const quiz = app.quizzes.find(q => q.id === room.quizId); const host = app.users.find(u => u.email === room.host); if (quiz) { const card = document.createElement('div'); card.className = 'room-card'; card.addEventListener('click', () => { if (app.currentUser) joinRoom(room.id); else handleGuestLogin(room.id); }); card.innerHTML = `<h3 style="color:#cf30aa;">${quiz.title}</h3><p style="margin-bottom:10px; color:#c0b9c0;">បង្កើតដោយ៖ ${host ? host.username : 'N/A'}</p>${room.isTest ? '<span style="background:#cf30aa; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">📝 ការប្រឡង (Test)</span>' : '<span style="background:#402fb5; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">🎮 Live Game</span>'}`; list.appendChild(card); } }); };
+    $('#room-search-input')?.addEventListener('input', (e) => renderRooms(e.target.value.trim()));
+    const updateAdminUI = () => { if (!app.currentUser || (!app.currentUser.isAdmin && !app.currentUser.isOwner)) return; const quizList = $('#manage-quizzes-list'); if(quizList) { quizList.innerHTML = ''; (app.quizzes || []).forEach(q => { const li = document.createElement('li'); li.innerHTML = `<span>${q.title}</span><div style="display:flex;gap:5px;"><button class="host-quiz-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important;">Live 🎮</button><button class="host-test-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important; background:#cf30aa !important;">ប្រឡង 📝</button><button class="delete-quiz-btn secondary-btn small-btn" data-quiz-id="${q.id}" style="color:#dc3545; border-color:#dc3545;">លុប</button></div>`; quizList.appendChild(li); }); } };
 
-    // --- 6. Home & Admin UI ---
-    const updateHomeUI = () => { 
-        const c = $('#user-actions'); 
-        if (c) {
-            if (app.currentUser && !app.currentUser.isGuest) { 
-                c.innerHTML = `<span style="color:white; margin-right:15px;">សួស្តី, <b>${app.currentUser.username}</b></span><button id="logout-btn" class="secondary-btn small-btn">ចាកចេញ</button>${app.currentUser.isAdmin || app.currentUser.isOwner ? '<button id="admin-panel-btn" class="magic-btn small-btn" style="margin-left: 10px; padding:10px 15px !important;">ផ្ទាំង Admin</button>' : ''}`; 
-            } else { 
-                c.innerHTML = `<button id="show-login-btn" class="magic-btn small-btn" style="padding:10px 15px !important;">ចូលគណនី</button>`; 
-            }
-        }
-        renderRooms(); 
-    };
-    
-    const renderRooms = (searchTerm = "") => { 
-        const list = $('#rooms-list');
-        if(!list) return;
-        list.innerHTML = ''; 
-        let available = app.rooms.filter(r => r.status === 'waiting' || (r.isTest && r.status === 'active')); 
-        
-        if (searchTerm) {
-            available = available.filter(room => {
-                const quiz = app.quizzes.find(q => q.id === room.quizId);
-                const host = app.users.find(u => u.email === room.host);
-                return (quiz && quiz.title.toLowerCase().includes(searchTerm.toLowerCase())) || (host && host.username.toLowerCase().includes(searchTerm.toLowerCase()));
-            });
-        }
-        
-        if (available.length === 0) { list.innerHTML = '<p style="color:#aaa;">មិនមានបន្ទប់កំពុងរង់ចាំទេ។</p>'; return; } 
-        available.forEach(room => { 
-            const quiz = app.quizzes.find(q => q.id === room.quizId); 
-            const host = app.users.find(u => u.email === room.host); 
-            if (quiz) { 
-                const card = document.createElement('div'); card.className = 'room-card'; card.addEventListener('click', () => { if (app.currentUser) { joinRoom(room.id); } else { handleGuestLogin(room.id); } }); 
-                card.innerHTML = `<h3 style="color:#cf30aa;">${quiz.title}</h3><p style="margin-bottom:10px; color:#c0b9c0;">បង្កើតដោយ៖ ${host ? host.username : 'N/A'}</p>${room.isTest ? '<span style="background:#cf30aa; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">📝 ការប្រឡង (Test)</span>' : '<span style="background:#402fb5; color:#fff; padding:4px 10px; border-radius:5px; font-size:0.8rem; font-weight:bold;">🎮 Live Game</span>'}`; 
-                list.appendChild(card); 
-            } 
-        }); 
-    };
-
-    $('#room-search-input')?.addEventListener('input', (e) => { renderRooms(e.target.value.trim()); });
-
-    const updateAdminUI = () => { 
-        if (!app.currentUser || (!app.currentUser.isAdmin && !app.currentUser.isOwner)) return;
-        
-        if (app.currentUser.isOwner) {
-            const ownerPanel = $('#owner-panel');
-            if(ownerPanel) {
-                ownerPanel.style.display = 'block';
-                const adminList = $('#owner-manage-admins-list');
-                if(adminList){
-                    adminList.innerHTML = '';
-                    app.users.filter(u => !u.isGuest && !u.isOwner).forEach(user => {
-                        const li = document.createElement('li'); li.style.display = 'flex'; li.style.justifyContent = 'space-between'; li.style.alignItems = 'center'; li.style.marginBottom = '10px'; li.style.padding = '10px'; li.style.background = 'rgba(0,0,0,0.3)'; li.style.borderRadius = '8px';
-                        li.innerHTML = `<span>${user.username} <small>(${user.email})</small></span> <button class="toggle-admin-btn ${user.isAdmin ? 'secondary-btn' : 'magic-btn'}" data-email="${user.email}" style="width:auto; padding:5px 15px !important; margin:0;">${user.isAdmin ? 'ដក Admin' : 'ធ្វើជា Admin'}</button>`;
-                        adminList.appendChild(li);
-                    });
-                }
-            }
-        }
-
-        const quizList = $('#manage-quizzes-list');
-        if(quizList){
-            quizList.innerHTML = ''; 
-            (app.quizzes || []).forEach(q => { const li = document.createElement('li'); li.innerHTML = `<span>${q.title}</span><div style="display:flex;gap:5px;"><button class="host-quiz-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important;">Live 🎮</button><button class="host-test-btn magic-btn small-btn" data-quiz-id="${q.id}" style="padding:8px !important; background:#cf30aa !important;">ប្រឡង 📝</button><button class="delete-quiz-btn secondary-btn small-btn" data-quiz-id="${q.id}" style="color:#dc3545; border-color:#dc3545;">លុប</button></div>`; quizList.appendChild(li); }); 
-        }
-
-        const userList = $('#manage-users-list');
-        if(userList){
-            userList.innerHTML = ''; 
-            app.users.filter(u => !u.isOwner).forEach(user => { const li = document.createElement('li'); li.innerHTML = `<span>${user.username} ${user.isAdmin ? '<b style="color:#cf30aa;">(Admin)</b>' : ''} ${user.banned ? '<b style="color:red;">(BANNED)</b>' : ''}</span><button class="ban-user-btn secondary-btn small-btn" data-user-email="${user.email}">${user.banned ? 'Unban' : 'Ban'}</button>`; userList.appendChild(li);}); 
-        }
-    };
-
-    // --- 7. AI CHAT & AUTO-TICK SYSTEM ---
-    const appendToChat = (role, text) => {
-        const chatBox = $('#admin-chat-history');
-        if(!chatBox) return;
-        const msgDiv = document.createElement('div');
-        msgDiv.className = `chat-msg ${role === 'user' ? 'user-msg' : 'bot-msg'}`;
-        msgDiv.textContent = typeof text === 'object' ? JSON.stringify(text, null, 2) : text;
-        chatBox.appendChild(msgDiv);
-        chatBox.scrollTop = chatBox.scrollHeight;
-    };
-
-    window.applyChatQuiz = () => {
-        if (!window.latestAIQuizQuestions) return alert('គ្មានសំណួរថ្មីទេ!');
-        
-        const titleInput = $('#quiz-title');
-        if (titleInput && window.latestAIQuizTitle && titleInput.value.trim() === '') {
-            titleInput.value = window.latestAIQuizTitle;
-        }
-
-        $('#questions-container').innerHTML = ''; 
-        window.latestAIQuizQuestions.forEach(q => populateQuestionFromData(q)); 
-        showNotification("ទាញយកសំណួរបានជោគជ័យ! ✅"); 
-    };
-
-    const processAIResponseForChat = (aiResultText, promptContext) => {
-        if (promptContext) app.aiConversationHistory += `\nSystem/User: ${promptContext}`;
-        
-        let actualText = typeof aiResultText === 'object' ? 
-            (aiResultText?.message?.content || aiResultText?.text || JSON.stringify(aiResultText)) : aiResultText;
-
-        app.aiConversationHistory += `\nAssistant: ${actualText}`;
-        const jsonMatch = actualText.match(/\{[\s\S]*\}/);
-
-        if (jsonMatch) {
-            try {
-                let cleanJson = jsonMatch[0].replace(/```json|```/g, "").trim();
-                const aiResult = JSON.parse(cleanJson);
-                
-                if (aiResult && (aiResult.questions || aiResult.quiz)) {
-                    window.latestAIQuizQuestions = aiResult.questions || aiResult.quiz; 
-                    window.latestAIQuizTitle = aiResult.title || "កម្រងសំណួរ AI"; 
-                    
-                    const chatBox = $('#admin-chat-history');
-                    if(chatBox) {
-                        const msgDiv = document.createElement('div');
-                        msgDiv.className = `chat-msg bot-msg`;
-                        msgDiv.innerHTML = `
-                            <div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបង្កើត <b>${window.latestAIQuizQuestions.length} សំណួរ</b> រួចរាល់ហើយ!</div>
-                            <button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ យល់ព្រម</button>
-                        `;
-                        chatBox.appendChild(msgDiv);
-                        chatBox.scrollTop = chatBox.scrollHeight;
-                    }
-                    return; 
-                }
-            } catch (e) { console.warn("JSON parse error"); }
-        }
-        let displayText = actualText.replace(/```json|```/g, "").trim();
-        appendToChat('bot', displayText);
-    };
-
-    const populateQuestionFromData = (qData) => { 
-        const template = $('#question-template');
-        if(!template) return;
-        const node = template.content.cloneNode(true); 
-        const container = $('#questions-container');
-        const qIndex = container.children.length; 
-        
-        node.querySelector('h4').textContent = `Question ${qIndex + 1}`; 
-        node.querySelector('.question-text').value = qData.question || qData.text || ''; 
-        
-        let correctIdx = qData.correct_answer_index ?? qData.correct ?? qData.answerIndex ?? qData.correctIndex ?? 0;
-        correctIdx = parseInt(correctIdx);
-        const optionsArray = qData.options || qData.answers || ["", "", "", ""];
-
-        node.querySelectorAll('.answer-option').forEach((opt, i) => {
-            const radio = opt.querySelector('input[type="radio"]');
-            const textInput = opt.querySelector('.answer-text');
-
-            radio.name = `correct_answer_${qIndex}`;
-            radio.value = i;
-            if (i === correctIdx) { radio.checked = true; } 
-            
-            textInput.value = optionsArray[i] || '';
-        });
-        
-        container.appendChild(node); 
-    };
-
-    const handleTextBotCreate = async () => {
-        const textInput = $('#bot-text-input').value.trim(); if (!textInput) return alert("សូមសរសេរប្រធានបទ។");
-        $('#bot-text-create-btn').innerHTML = "កំពុងដំណើរការ..."; $('#bot-text-create-btn').disabled = true;
-        
-        let PROMPT = `Topic: "${textInput}". Generate 5 questions in Khmer. Format EXACTLY: {"title": "${textInput} Quiz", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
-        
-        appendToChat('user', `[ប្រធានបទ: ${textInput}] សូមបង្កើតសំណួរ`);
-        try { 
-            const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3-flash-preview' }); 
-            processAIResponseForChat(response, `Topic: ${textInput}`); 
-        } catch (error) { appendToChat('bot', `Error: ${error.message}`); } 
-        finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
-    };
-
-    // 🚀 FIX: The missing send button function!
-    const handleAdminChatSend = async () => {
-        const inputEl = $('#admin-chat-input');
-        if (!inputEl) return;
-        const msg = inputEl.value.trim();
-        if (!msg) return;
-
-        appendToChat('user', msg);
-        inputEl.value = '';
-        
-        const sendBtn = $('#admin-chat-send-btn');
-        if (sendBtn) sendBtn.disabled = true;
-        
-        const PROMPT = `User says: "${msg}". Please respond and if you generate a quiz, use this JSON format: {"title": "...", "questions": [{"question": "...", "options": ["...", "...", "...", "..."], "correct_answer_index": <RANDOM 0-3>}]}`;
-        
-        app.aiConversationHistory += `\nUser: ${PROMPT}\nAssistant: `;
-
-        try {
-            const response = await puter.ai.chat(app.aiConversationHistory, { model: 'gemini-3-flash-preview' });
-            processAIResponseForChat(response, null);
-        } catch (err) { 
-            appendToChat('bot', `Error: ${err.message}`); 
-        } finally { 
-            if (sendBtn) sendBtn.disabled = false; 
-        }
-    };
-
-    // --- 8. Save System ---
+    // --- 7. Save Quiz ---
     const handleSaveQuiz = async () => {
-        const saveButton = $('#save-quiz-btn');
-        if (!saveButton) return;
-        const originalText = saveButton.innerHTML;
-        
+        const btn = $('#save-quiz-btn'); if (!btn) return; const orig = btn.innerHTML;
         try {
-            const title = $('#quiz-title').value.trim();
-            if (!title) { alert('សូមបញ្ចូលចំណងជើងកម្រងសំណួរ!'); return; }
-            
-            const editors = $$('#questions-container .question-editor');
-            if (editors.length === 0) { alert('សូមបន្ថែមយ៉ាងហោចណាស់មួយសំណួរ!'); return; }
-
-            saveButton.disabled = true;
-            saveButton.innerHTML = "⌛ កំពុងរក្សាទុក...";
-
+            const title = $('#quiz-title').value.trim(); if (!title) return alert('សូមបញ្ចូលចំណងជើង!');
+            const editors = $$('#questions-container .question-editor'); if (editors.length === 0) return alert('សូមបន្ថែមសំណួរ!');
+            btn.disabled = true; btn.innerHTML = "⌛ កំពុងរក្សាទុក...";
             let questions = [];
-            
             for (const [i, e] of editors.entries()) {
                 const text = e.querySelector('.question-text').value.trim();
                 const answers = Array.from(e.querySelectorAll('.answer-text')).map(inp => inp.value.trim());
                 const correctRadio = e.querySelector('input[type="radio"]:checked');
-
-                if (!text || answers.some(a => !a) || !correctRadio) {
-                    saveButton.disabled = false;
-                    saveButton.innerHTML = originalText;
-                    alert(`សំណួរទី ${i + 1} មិនទាន់បំពេញគ្រប់ ឬអត់ទាន់ Tick ចម្លើយ!`);
-                    return; 
-                }
-
-                questions.push({
-                    text: text,
-                    answers: answers,
-                    correct: parseInt(correctRadio.value),
-                    imageUrl: null 
-                });
+                if (!text || answers.some(a => !a) || !correctRadio) { btn.disabled = false; btn.innerHTML = orig; return alert(`សំណួរទី ${i + 1} មិនទាន់បំពេញគ្រប់ ឬអត់ទាន់ Tick ចម្លើយ!`); }
+                questions.push({ text: text, answers: answers, correct: parseInt(correctRadio.value) });
             }
-
             const quizId = `quiz_${Date.now()}`;
-            const newQuiz = { 
-                id: quizId,
-                title: title,
-                questions: questions, 
-                createdBy: app.currentUser ? app.currentUser.email : 'Admin',
-                createdAt: Date.now()
-            };
-
-            await db.ref('quizzes/' + quizId).set(newQuiz);
-            
-            alert('រក្សាទុកបានជោគជ័យ! ✅');
-            $('#quiz-title').value = '';
-            $('#questions-container').innerHTML = '';
-            $('#bot-text-input').value = '';
-            $('#admin-chat-history').innerHTML = '';
-            if (typeof updateAdminUI === 'function') updateAdminUI();
-            
-        } catch (error) {
-            console.error("Save Error:", error);
-            alert("រក្សាទុកបរាជ័យ: " + error.message);
-        } finally {
-            saveButton.disabled = false;
-            saveButton.innerHTML = originalText;
-        }
+            await db.ref('quizzes/' + quizId).set({ id: quizId, title: title, questions: questions, createdBy: app.currentUser.email, createdAt: Date.now() });
+            alert('រក្សាទុកបានជោគជ័យ! ✅'); $('#quiz-title').value = ''; $('#questions-container').innerHTML = ''; updateAdminUI();
+        } catch (err) { alert("Error: " + err.message); } finally { btn.disabled = false; btn.innerHTML = orig; }
     };
 
-    // --- 9. Game Logic (Lobby & Game Loop) ---
+    // --- 8. Lobby System ---
     const joinRoom = (roomId) => { 
         db.ref('rooms/' + roomId).once('value', snapshot => {
             const room = snapshot.val();
-            if (!room) return forceGoHome("បន្ទប់នេះមិនមានទេ ឬត្រូវបានបិទបាត់ទៅហើយ។ (Invalid Room)");
-            if (!room.isTest && room.status !== 'waiting') return forceGoHome('ហ្គេមនៅក្នុងបន្ទប់នេះបានចាប់ផ្តើមបាត់ទៅហើយ។');
-            
+            if (!room) return forceGoHome("បន្ទប់នេះមិនមានទេ ឬត្រូវបានបិទ។");
             app.currentRoomId = roomId; 
-            const encodedPlayerEmail = encodeEmail(app.currentUser.email); 
-            const playerRef = db.ref(`rooms/${roomId}/players/${encodedPlayerEmail}`); 
-            
-            playerRef.once('value', pSnapshot => { 
-                let playerInfo = pSnapshot.val(); 
-                if (!playerInfo) { 
-                    playerInfo = { email: app.currentUser.email, username: app.currentUser.username, avatarUrl: AVATAR_LIST[Math.floor(Math.random() * AVATAR_LIST.length)] }; 
-                    playerRef.set(playerInfo); 
-                } 
-                showView('lobby'); 
-                setupLobby(playerInfo); 
-                updateLobbyUI(room); 
+            const playerRef = db.ref(`rooms/${roomId}/players/${encodeEmail(app.currentUser.email)}`); 
+            playerRef.once('value', pSnap => { 
+                let pInfo = pSnap.val(); 
+                if (!pInfo) { pInfo = { email: app.currentUser.email, username: app.currentUser.username, avatarUrl: AVATAR_LIST[Math.floor(Math.random() * AVATAR_LIST.length)] }; playerRef.set(pInfo); } 
+                showView('lobby'); updateLobbyUI(room); 
             }); 
         });
     };
-
-    const setupLobby = (playerInfo) => { $('#player-username-display').textContent = playerInfo.username; const avatarGrid = $('#avatar-selection'); avatarGrid.innerHTML = ''; AVATAR_LIST.forEach((url) => { const img = document.createElement('img'); img.src = url; img.className = 'avatar-option'; if (url === playerInfo.avatarUrl) { img.classList.add('selected'); $('#player-avatar-display').src = url; } img.onclick = () => { const selected = $('.avatar-option.selected'); if (selected) selected.classList.remove('selected'); img.classList.add('selected'); $('#player-avatar-display').src = img.src; db.ref(`rooms/${app.currentRoomId}/players/${encodeEmail(app.currentUser.email)}/avatarUrl`).set(img.src); }; avatarGrid.appendChild(img); }); };
-    
     const updateLobbyUI = (room) => { 
         const quiz = app.quizzes.find(q => q.id === room.quizId); 
         $('#lobby-quiz-title').textContent = quiz ? quiz.title : 'Loading...'; 
         $('#lobby-join-link-input').value = `${window.location.origin}${window.location.pathname}?room=${room.id}`; 
-        
         const players = room.players ? Object.values(room.players) : []; 
         $('#player-count').textContent = players.length; 
-        const playerListContainer = $('#lobby-player-list-main'); playerListContainer.innerHTML = ''; 
-        players.forEach(p => { playerListContainer.innerHTML += `<div class="lobby-player-item"><img src="${p.avatarUrl || AVATAR_LIST[0]}" alt="avatar"><span>${p.username}</span></div>`; }); 
-        
+        const list = $('#lobby-player-list-main'); list.innerHTML = ''; 
+        players.forEach(p => { list.innerHTML += `<div class="lobby-player-item"><img src="${p.avatarUrl || AVATAR_LIST[0]}" alt="avatar"><span>${p.username}</span></div>`; }); 
         const isHost = app.currentUser && app.currentUser.email === room.host; 
-        
-        if (room.isTest) {
-            $('#start-game-btn').style.display = 'none';
-            $('#close-room-btn').style.display = isHost ? 'block' : 'none';
-            $('#lobby-wait-message').style.display = 'none';
-            $('#start-test-btn').style.display = 'block'; 
-        } else {
-            $('#start-test-btn').style.display = 'none';
-            $('#start-game-btn').style.display = isHost ? 'block' : 'none'; 
-            $('#close-room-btn').style.display = isHost ? 'block' : 'none'; 
-            $('#lobby-wait-message').style.display = isHost ? 'none' : 'block'; 
-        }
+        $('#start-game-btn').style.display = 'block'; 
+        $('#start-game-btn').innerHTML = "📝 ចាប់ផ្តើមធ្វើវិញ្ញាសា"; 
+        $('#close-room-btn').style.display = isHost ? 'block' : 'none'; 
+        $('#lobby-wait-message').style.display = 'none'; 
     };
 
-    const handleStartGameClick = () => { db.ref('rooms/' + app.currentRoomId).once('value', snapshot => { const room = snapshot.val(); if (room && room.host === app.currentUser.email) { let initialScores = {}; if (room.players) { Object.keys(room.players).forEach(playerKey => { initialScores[playerKey] = 0; }); } db.ref('rooms/' + app.currentRoomId).update({ status: 'active', scores: initialScores }); } }); };
-    
-    const startGame = () => { 
-        localStorage.removeItem('quiz9b_gameState'); 
+    // --- 9. 📝 DIGITAL EXAM PAPER (100% Pure CSS A4 Sheet) ---
+    const startDigitalExam = () => { 
         app.currentQuiz = app.quizzes.find(q => q.id === app.rooms.find(r=>r.id===app.currentRoomId).quizId);
-        const room = app.rooms.find(r => r.id === app.currentRoomId);
-        
         showView('game'); 
         
-        if (room && room.isTest) {
-            $('#game-powerup-footer').style.display = 'none';
-            $('#time-bar-container').style.display = 'none';
-            app.gameState = { score: 0, streak: 0, powerUps: { glitch: 0, shield: 0 }, playerAnswers: [], isOvertime: false }; 
-            runQuestion();
-            return; 
-        }
+        const gameView = $('#quiz-game-view');
+        app.gameState = { score: 0, playerAnswers: new Array(app.currentQuiz.questions.length).fill(null), isSubmitted: false };
+        app.currentZoom = 16; 
 
-        $('#game-powerup-footer').style.display = 'flex';
-        $('#time-bar-container').style.display = 'block';
-        
-        const countdownOverlay = $('#countdown-overlay'); 
-        const countdownTimer = $('#countdown-timer'); 
-        countdownOverlay.style.display = 'flex'; 
-        let count = 5; 
-        const countdownInterval = setInterval(() => { 
-            countdownTimer.className = ''; void countdownTimer.offsetWidth; countdownTimer.className = 'pop'; 
-            if (count > 0) { countdownTimer.textContent = count; } else if (count === 0) { countdownTimer.textContent = "GO!"; } 
-            else { 
-                clearInterval(countdownInterval); 
-                countdownOverlay.style.display = 'none'; 
-                app.gameState = { score: 0, streak: 0, powerUps: { glitch: 1, shield: 1 }, playerAnswers: [], isOvertime: false }; 
-                runQuestion(); 
-            } 
-            count--; 
-        }, 1000); 
-    };
+        let styleStr = `
+            <style>
+                .paper-wrapper {
+                    padding: 40px 20px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: flex-start;
+                    width: 100%;
+                }
+                .real-a4-paper { 
+                    background: #ffffff; color: #000000; 
+                    width: 100%; max-width: 21cm; 
+                    height: auto; min-height: 29.7cm; 
+                    padding: 2.5cm 2cm; 
+                    box-shadow: 0 15px 35px rgba(0,0,0,0.5); 
+                    font-family: 'Khmer OS Battambang', 'Khmer OS', serif; line-height: 1.6;
+                    box-sizing: border-box;
+                }
+                .exam-header-a4 { border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; position: relative; }
+                .school-title { font-size: 1.1em; font-weight: bold; margin: 0; }
+                .quiz-title { font-size: 1.3em; font-weight: bold; margin: 15px 0 10px 0; text-align: center; }
+                .student-info { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 30px; font-size: 0.9em; }
+                .dotted-line { border-bottom: 1.5px dotted #000; display: inline-block; width: 150px; margin-left: 5px; }
+                .q-container { margin-bottom: 35px; text-align: left; }
+                .q-text { font-weight: bold; margin-bottom: 15px; line-height: 1.8; color: #000; }
+                
+                /* Matching Table Layout ZIN */
+                .matching-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                .matching-table th, .matching-table td { border: 1px solid #333; padding: 10px; text-align: left; vertical-align: middle; }
+                .matching-table th { background: #f0f0f0; text-align: center; color: #000; }
+                
+                /* 💥 FIX: ប្រអប់បញ្ចូលអក្សរ ថ្លា មិនងងឹតប្រផេះ */
+                .match-input { 
+                    width: 50px !important; text-align: center; 
+                    border: none !important; border-bottom: 2px dashed #000 !important; 
+                    outline: none !important; font-weight: bold; color: blue !important; 
+                    font-size: 1.1em; background: transparent !important; box-shadow: none !important; padding: 0 !important;
+                }
+                .actual-fill-input { 
+                    border: none !important; border-bottom: 2px dotted #000 !important; 
+                    outline: none !important; background: transparent !important; 
+                    font-size: 1em; color: blue !important; 
+                    padding: 0 5px !important; min-width: 150px; text-align: center; font-weight: bold; box-shadow: none !important;
+                }
+                
+                .mcq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding-left: 10px; }
+                .mcq-item { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; color: black !important; }
+                .paper-checkbox { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; border: 1.5px solid #000; border-radius: 2px; position: relative; cursor: pointer; background: #fff; margin-top: 4px; flex-shrink: 0;}
+                .paper-checkbox:checked::after { content: "✔"; position: absolute; top: -6px; left: 2px; color: #000; font-size: 18px; font-weight: bold; }
+                
+                .zoom-panel { position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; gap: 10px; }
+                .zoom-btn { background: #2c3e50; color: #fff; border: 1px solid #fff; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-shadow: none; font-size: 16px;}
+                .btn-submit-a4 { display: block; width: 100%; background: #000; color: #fff; border: none; padding: 15px; font-size: 1.2em; cursor: pointer; margin-top: 40px; border-radius: 5px;}
+                .btn-submit-a4:hover { background: #333; }
+                .btn-goto-leaderboard { background: #cf30aa; display: none; margin-top: 15px; }
+            </style>
+        `;
 
-    const runQuestion = () => {
-        const savedStateJSON = localStorage.getItem('quiz9b_gameState'); if (savedStateJSON) { const savedState = JSON.parse(savedStateJSON); if(savedState.roomId === app.currentRoomId) { app.gameState = savedState.state; localStorage.removeItem('quiz9b_gameState'); } }
-        const room = app.rooms.find(r => r.id === app.currentRoomId);
-        
-        if (!app.currentQuiz || !app.currentQuiz.questions || app.currentQuiz.questions.length <= app.gameState.playerAnswers.length) return endGame();
-        
-        app.gameState.isOvertime = false; $('#overtime-message-overlay').style.display = 'none';
-        const qIndex = app.gameState.playerAnswers.length; app.currentQuestionIndex = qIndex; const q = app.currentQuiz.questions[qIndex];
-        const answerContainer = $('#answer-options-container'); answerContainer.innerHTML = '';
-        (q.answers || []).forEach((ans, i) => { answerContainer.innerHTML += `<button class="answer-btn" data-index="${i}"><span>${ans || ''}</span></button>`; });
-        
-        const qImage = $('#game-question-image'); if (q.imageUrl) { qImage.src = q.imageUrl; qImage.style.display = 'block'; } else { qImage.style.display = 'none'; }
-        $('#question-number').textContent = qIndex + 1; $('#total-questions').textContent = app.currentQuiz.questions.length; $('#player-score').textContent = app.gameState.score; $('#streak-count').textContent = app.gameState.streak; $('#game-question-text').textContent = q.text;
-        
-        if (!room.isTest) {
-            $('#powerup-glitch-count').textContent = app.gameState.powerUps.glitch; $('#powerup-shield-count').textContent = app.gameState.powerUps.shield;
-            $('#powerup-glitch-btn').disabled = app.gameState.powerUps.glitch <= 0; $('#powerup-shield-btn').disabled = app.gameState.powerUps.shield <= 0 || app.gameState.shieldActive;
+        let html = styleStr + `
+            <div class="zoom-panel">
+                <button class="zoom-btn" id="zoom-in-btn">🔍+</button>
+                <button class="zoom-btn" id="zoom-out-btn">🔍-</button>
+            </div>
+            <div class="paper-wrapper">
+                <div class="real-a4-paper" id="exam-paper-content" style="font-size: ${app.currentZoom}px;">
+                    <div class="exam-header-a4">
+                        <p class="school-title">វិទ្យាល័យព្រះអង្គឌួង សាលារៀនជំនាន់ថ្មី</p>
+                        <div style="position: absolute; right: 0; top: 0; border: 1.5px solid #000; border-radius: 50%; width: 50px; height: 50px; text-align: center; line-height: 50px; font-weight: bold;">៥០</div>
+                        <div class="quiz-title">${app.currentQuiz.title}</div>
+                    </div>
+                    <div class="student-info">
+                        <div>នាមត្រកូល និងនាមខ្លួន៖ <b style="color:blue;">${app.currentUser.username}</b> <span class="dotted-line" style="width: 50px;"></span></div>
+                        <div>លេខតុ៖ <span class="dotted-line"></span></div>
+                        <div>ថ្នាក់ទី៖ <span class="dotted-line"></span></div>
+                        <div>ថ្ងៃខែឆ្នាំកំណើត៖ <span class="dotted-line"></span></div>
+                    </div>
+                    <div style="font-style: italic; margin-bottom: 25px; font-size: 0.9em; text-align: center; border-bottom: 1px dashed #ccc; padding-bottom: 15px;">* ចូរជ្រើសរើសចម្លើយដែលត្រឹមត្រូវដោយគូសសញ្ញា ✔ ក្នុងប្រអប់ ឬបំពេញចន្លោះ។</div>
+        `;
+
+        app.currentQuiz.questions.forEach((q, i) => {
+            const opts = q.answers || [];
             
-            if (room && room.glitchInfo && room.glitchInfo.target === app.currentUser.email && room.glitchInfo.qIndex === qIndex) {
-                if (app.gameState.shieldActive) { showNotification('Shield ការពារអ្នកពី Glitch Attack បានសម្រេច!'); app.gameState.shieldActive = false; db.ref(`rooms/${app.currentRoomId}/glitchInfo`).remove(); document.body.classList.remove('shield-active-body'); } 
-                else { $('.question-content').classList.add('glitched'); $('#glitch-overlay').style.display = 'block'; showNotification(`អ្នកត្រូវបានគេវាយប្រហារដោយ Glitch!`); db.ref(`rooms/${app.currentRoomId}/glitchInfo`).remove(); setTimeout(() => { $('.question-content').classList.remove('glitched'); $('#glitch-overlay').style.display = 'none'; }, 3000); }
+            // Bulletproof Type Detectors
+            let colA = [], colB = [], regularOpts = [];
+            opts.forEach(o => {
+                if (o.match(/^(A|ក)\s*:/)) colA = o.replace(/^(A|ក)\s*:/, '').split('|').map(s=>s.trim());
+                else if (o.match(/^(B|ខ)\s*:/)) colB = o.replace(/^(B|ខ)\s*:/, '').split('|').map(s=>s.trim());
+                else regularOpts.push(o);
+            });
+
+            if (colA.length === 0 && colB.length === 0) {
+                let matchA = q.text.match(/(?:ផ្នែក|ជួរ|ក្រុម)?\s*A\s*\((.*?)\)/i) || q.text.match(/A\s*:\s*(.*?)(?=(?:ផ្នែក|ជួរ|ក្រុម)?\s*B|B\s*:|$)/i);
+                let matchB = q.text.match(/(?:ផ្នែក|ជួរ|ក្រុម)?\s*B\s*\((.*?)\)/i) || q.text.match(/B\s*:\s*(.*?)$/i);
+                if(matchA) colA = matchA[1].split('|').map(s=>s.trim());
+                if(matchB) colB = matchB[1].split('|').map(s=>s.trim());
+                regularOpts = opts;
             }
+
+            let isMatching = colA.length > 0 && colB.length > 0;
+            let isFillBlank = !isMatching && (q.text.includes('........') || q.text.includes('..........'));
+
+            html += `<div class="q-container" data-qindex="${i}" data-type="${isMatching ? 'match' : (isFillBlank ? 'fill' : 'mcq')}">`;
+
+            if (isMatching) {
+                html += `<div class="q-text">${q.text}</div>`;
+                html += `<table class="matching-table"><tr><th style="width: 42%">ជួរ A</th><th style="width: 43%">ជួរ B</th><th style="width: 15%">(C) ចម្លើយ</th></tr>`;
+                let maxRows = Math.max(colA.length, colB.length);
+                for(let r=0; r<maxRows; r++) {
+                    html += `<tr>
+                                <td>${colA[r] || ''}</td>
+                                <td>${colB[r] || ''}</td>
+                                <td style="text-align:center;">${colA[r] ? `${r+1} ➔ <input type="text" class="match-input" data-row="${r+1}" autocomplete="off">` : ''}</td>
+                             </tr>`;
+                }
+                html += `</table>`;
+                
+                html += `<div style="margin-top: 10px; font-style: italic; font-size: 0.9em;">សូមជ្រើសរើសចម្លើយរួមបញ្ចូលគ្នា៖</div>`;
+                html += `<div class="mcq-grid" style="margin-top: 5px;">`;
+                regularOpts.forEach(ans => {
+                    let actualJ = opts.indexOf(ans);
+                    html += `<label class="mcq-item"><input type="radio" name="q_${i}" value="${actualJ}" class="paper-checkbox"><span>${ans}</span></label>`;
+                });
+                html += `</div>`;
+
+            } else if (isFillBlank) {
+                let parts = q.text.split(/\.{4,}/);
+                let formattedQ = '';
+                for(let p=0; p<parts.length; p++) {
+                    formattedQ += parts[p];
+                    if(p < parts.length - 1) formattedQ += `<input type="text" class="actual-fill-input" name="fill_${i}" autocomplete="off">`;
+                }
+                html += `<div class="q-text">${formattedQ}</div>`;
+            } else {
+                html += `<div class="q-text">${q.text}</div><div class="mcq-grid">`;
+                opts.forEach((ans, j) => {
+                    html += `<label class="mcq-item"><input type="radio" name="q_${i}" value="${j}" class="paper-checkbox"><span>${ans}</span></label>`;
+                });
+                html += `</div>`;
+            }
+            html += `</div>`;
+        });
+
+        html += `<button id="submit-exam-btn" class="btn-submit-a4">ប្រគល់សន្លឹកកិច្ចការ</button>`;
+        html += `<button id="goto-leaderboard-btn" class="btn-submit-a4 btn-goto-leaderboard">🏆 ទៅកាន់តារាងចំណាត់ថ្នាក់</button>`;
+        html += `</div></div>`; 
+        
+        gameView.innerHTML = html;
+        document.body.style.backgroundColor = '#525659';
+    };
+
+    // --- 10. 💥 THE ANTI-DUMP GRADER (Super Khmer Parser) ---
+    const superKhmerParser = (userAns, correctAns) => {
+        if (!userAns) return false;
+        
+        // កាត់ក្បាលអក្សរ ក, ខ, គ, ឃ, 1. ចេញពីចម្លើយពិតប្រាកដ
+        let cleanC = (correctAns || "").replace(/^([ក-អ]|[a-zA-Z]|\d+)\s*[,.)៖-]\s*/, '').trim();
+        
+        const cleanStr = (s) => {
+            if(!s) return "";
+            // លុបដកឃ្លា និងសញ្ញាខណ្ឌចោលឱ្យអស់
+            let t = s.replace(/[\s\.\,\?\!។ៗ៖៘៙\-\_\➔]/g, '').toLowerCase();
+            // តម្រង់ជើងអក្សរ ដ និង ត ឱ្យរត់ចូលកូដតែមួយ (Fix Unicode Subscripts Shift)
+            t = t.replace(/ណ្ត/g, 'ណ្ដ');
+            return t;
+        };
+
+        let cu = cleanStr(userAns);
+        let cc = cleanStr(cleanC);
+
+        if (cu === cc) return true;
+        if (cc.includes(cu) && cu.length >= 3) return true; // បើត្រូវពាក្យគន្លឹះស្នូល
+        if (cu.includes(cc) && cc.length >= 3) return true;
+        
+        return false;
+    };
+
+    // --- 11. IN-PLACE EVALUATION ENGINE ---
+    const submitDigitalExam = () => {
+        if (app.gameState.isSubmitted) return;
+        if (!confirm("តើអ្នកពិតជាចង់ប្រគល់សន្លឹកកិច្ចការមែនទេ?")) return;
+
+        app.gameState.isSubmitted = true;
+        $('#submit-exam-btn').style.display = 'none'; 
+        let score = 0;
+        
+        app.currentQuiz.questions.forEach((q, i) => {
+            const container = $(`div.q-container[data-qindex="${i}"]`);
+            const qType = container.dataset.type;
+            const opts = q.answers || [];
             
-            $('#time-bar').style.transition = 'none'; $('#time-bar').style.width = '100%'; setTimeout(() => { $('#time-bar').style.transition = 'width 10s linear'; $('#time-bar').style.width = '0%'; }, 100);
-            
-            clearTimeout(app.questionTimer);
-            app.questionTimer = setTimeout(() => { app.gameState.isOvertime = true; $('#overtime-message-overlay').style.display = 'block'; $('#powerup-glitch-btn').disabled = true; $('#powerup-shield-btn').disabled = true; }, 10000);
-        }
-    };
+            let isCorrect = false;
+            let userSel = "មិនបានឆ្លើយ";
+            let correctStr = opts[q.correct] || "";
 
-    const handleAnswer = (e) => {
-        clearTimeout(app.questionTimer); 
-        const selIdx = parseInt(e.currentTarget.dataset.index); const q = app.currentQuiz.questions[app.currentQuestionIndex]; if (!q) return;
-        const room = app.rooms.find(r => r.id === app.currentRoomId);
-        
-        $$('#answer-options-container .answer-btn').forEach(b => {b.disabled = true; b.classList.add('disabled');}); $('#overtime-message-overlay').style.display = 'none';
-        let pts = 0; const isCorrect = selIdx === q.correct;
-        
-        if (room.isTest) {
-            if (isCorrect) { pts = 1000; app.gameState.score += pts; showFeedback(true, pts); } else { showFeedback(false, 0); }
-        } else {
-            if (app.gameState.isOvertime) { if (isCorrect) { pts = 50; app.gameState.score += pts; showFeedback(true, pts); } else { showFeedback(false, 0); } app.gameState.streak = 0; }
-            else {
-                if (isCorrect) { app.gameState.streak++; const timeBonus = Math.floor(parseFloat(getComputedStyle($('#time-bar')).width) / $('#time-bar').parentElement.offsetWidth * 500); const streakBonus = 10 * (app.gameState.streak * app.gameState.streak); pts = 1000 + timeBonus + streakBonus; app.gameState.score += pts; showFeedback(true, pts); $('.streak-counter').classList.add('flash'); } 
-                else { app.gameState.streak = 0; showFeedback(false, 0); }
+            if (qType === 'match') {
+                // កែទម្រង់ផ្គូផ្គង
+                let correctMapping = {};
+                let matches = correctStr.match(/(\d+)\s*[-_➔:]\s*([ក-អ])/g);
+                if (matches) {
+                    matches.forEach(m => {
+                        let p = m.match(/(\d+)\s*[-_➔:]\s*([ក-អ])/);
+                        if(p) correctMapping[p[1]] = p[2];
+                    });
+                }
+                
+                let allMatchCorrect = true;
+                let userSelStr = "";
+                const inputs = container.querySelectorAll('.match-input');
+                
+                inputs.forEach(inp => {
+                    let rNum = inp.dataset.row;
+                    let uVal = inp.value.trim();
+                    let cVal = correctMapping[rNum] ? correctMapping[rNum] : "";
+                    
+                    userSelStr += `${rNum}➔${uVal || '?'} `;
+                    inp.disabled = true;
+                    
+                    if (uVal && cVal && uVal.toLowerCase() === cVal.toLowerCase()) {
+                        inp.style.color = '#1b5e20';
+                        inp.style.borderBottomColor = '#1b5e20';
+                    } else {
+                        allMatchCorrect = false;
+                        inp.style.color = '#b71c1c';
+                        inp.style.borderBottomColor = '#b71c1c';
+                        inp.style.textDecoration = 'line-through';
+                        
+                        let corrSpan = document.createElement('span');
+                        corrSpan.innerHTML = ` <b style="color:#1b5e20; background:#e8f5e9; border-radius:3px; padding:0 4px; font-size:0.9em;">(${cVal})</b>`;
+                        inp.parentNode.appendChild(corrSpan);
+                    }
+                });
+
+                const selectedRadio = container.querySelector(`input[type="radio"]:checked`);
+                if(selectedRadio) userSelStr += `| រើស៖ ${opts[selectedRadio.value]}`;
+
+                isCorrect = allMatchCorrect && inputs.length > 0;
+                if(isCorrect) score += 1000;
+                userSel = userSelStr.trim();
+
+                // ផាត់ពណ៌ Radio ខាងក្រោមតារាងឱ្យស្អាត
+                const labels = container.querySelectorAll('.mcq-item');
+                labels.forEach((label) => {
+                    const cb = label.querySelector('input');
+                    if(cb) {
+                        cb.disabled = true;
+                        if (parseInt(cb.value) === q.correct) {
+                            label.style.backgroundColor = 'rgba(76, 175, 80, 0.15)'; label.style.border = '1px solid #4CAF50';
+                        }
+                    }
+                });
+
+            } else if (qType === 'fill') {
+                const inputs = container.querySelectorAll('.actual-fill-input');
+                let combinedUserText = "";
+                inputs.forEach(inp => { combinedUserText += inp.value.trim() + " "; inp.disabled = true; });
+                userSel = combinedUserText.trim();
+                
+                isCorrect = superKhmerParser(userSel, correctStr);
+                
+                inputs.forEach(inp => {
+                    if(isCorrect) { 
+                        inp.style.color = '#1b5e20'; 
+                        inp.style.borderBottomColor = '#1b5e20'; 
+                    } else { 
+                        inp.style.color = '#b71c1c'; 
+                        inp.style.borderBottomColor = '#b71c1c'; 
+                        inp.style.textDecoration = 'line-through';
+                    }
+                });
+                
+                if(isCorrect) score += 1000;
+                else {
+                    let lastInput = inputs[inputs.length-1];
+                    if (lastInput) {
+                        let corrSpan = document.createElement('span');
+                        corrSpan.innerHTML = ` ➔ <b style="color:#1b5e20; background:#e8f5e9; padding:2px 6px; border-radius:3px; font-size:0.95em;">${correctStr}</b>`;
+                        lastInput.parentNode.insertBefore(corrSpan, lastInput.nextSibling);
+                    }
+                }
+            } else {
+                // MCQ ធម្មតា
+                const selectedRadio = container.querySelector(`input[type="radio"]:checked`);
+                const selIdx = selectedRadio ? parseInt(selectedRadio.value) : -1;
+                isCorrect = selIdx === q.correct;
+                if(selIdx >= 0) userSel = opts[selIdx];
+                if (isCorrect) score += 1000; 
+
+                const labels = container.querySelectorAll('.mcq-item');
+                labels.forEach((label) => {
+                    const checkbox = label.querySelector('input');
+                    if(checkbox) {
+                        checkbox.disabled = true;
+                        const optIdx = parseInt(checkbox.value);
+                        if (optIdx === q.correct) {
+                            label.style.backgroundColor = 'rgba(76, 175, 80, 0.15)'; label.style.border = '1px solid #4CAF50'; label.style.padding = '2px 8px'; label.style.borderRadius = '4px';
+                        } else if (optIdx === selIdx && !isCorrect) {
+                            label.style.backgroundColor = 'rgba(244, 67, 54, 0.1)'; label.style.border = '1px dashed #F44336'; label.style.padding = '2px 8px'; label.style.borderRadius = '4px';
+                        }
+                    }
+                });
             }
-        }
-        
-        // --- FIX 2: Correct Answer JUMP Style ---
-        const correctBtn = $$('#answer-options-container .answer-btn')[q.correct];
-        if (correctBtn) {
-            correctBtn.style.backgroundColor = '#00ce7a';
-            correctBtn.style.color = '#fff';
-            correctBtn.style.transform = 'scale(1.05) translateY(-8px)';
-            correctBtn.style.boxShadow = '0 10px 25px rgba(0, 206, 122, 0.6)';
-            correctBtn.style.border = '2px solid #fff';
-            correctBtn.style.transition = 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
-            correctBtn.style.zIndex = '10';
-        }
+            app.gameState.playerAnswers[i] = { qText: q.text, sel: userSel, cor: correctStr, isCor: isCorrect };
+        });
 
-        if (!isCorrect) {
-            e.currentTarget.style.backgroundColor = '#ff4757';
-            e.currentTarget.style.color = '#fff';
-            e.currentTarget.style.transform = 'scale(0.95)';
-            e.currentTarget.style.opacity = '0.7';
-        }
+        app.gameState.score = score;
+        db.ref(`rooms/${app.currentRoomId}/scores/${encodeEmail(app.currentUser.email)}`).set(score);
         
-        app.gameState.playerAnswers.push({ qText: q.text, sel: q.answers[selIdx], cor: q.answers[q.correct], isCor: isCorrect });
-        localStorage.setItem('quiz9b_gameState', JSON.stringify({ roomId: app.currentRoomId, state: app.gameState }));
-        db.ref(`rooms/${app.currentRoomId}/scores/${encodeEmail(app.currentUser.email)}`).set(app.gameState.score);
+        window.scrollTo({ top: 0, behavior: 'smooth' }); 
+        showNotification("សន្លឹកកិច្ចការត្រូវបានកែរួចរាល់! 💯", 3000);
         
-        setTimeout(() => { $('.streak-counter').classList.remove('flash'); runQuestion(); }, room.isTest ? 1500 : 2500);
+        const btnGo = $('#goto-leaderboard-btn');
+        if (btnGo) btnGo.style.display = 'block';
     };
 
-    const usePowerUp = (type) => { 
-        const room = app.rooms.find(r => r.id === app.currentRoomId); if (!room) return; 
-        if (type === 'glitch' && app.gameState.powerUps.glitch > 0) { 
-            const otherPlayers = room.players ? Object.values(room.players).filter(p => p.email !== app.currentUser.email) : []; 
-            if (otherPlayers.length === 0) return showNotification("គ្មានអ្នកលេងផ្សេងទៀតសម្រាប់វាយប្រហារទេ!"); 
-            let playerListHtml = '<h4 style="margin-bottom:15px; color:#cf30aa;">ជ្រើសរើសអ្នកលេងដើម្បីវាយប្រហារ (Glitch):</h4>'; 
-            otherPlayers.forEach(p => { playerListHtml += `<label class="player-select-label" style="display:flex; align-items:center; gap:10px; margin-bottom:10px; cursor:pointer;"><input type="radio" name="glitch-target" value="${p.email}"><img src="${p.avatarUrl}" class="player-select-avatar" style="width:40px; border-radius:50%;"><span style="color:white;">${p.username}</span></label>`; }); playerListHtml += `<button id="confirm-glitch-btn" class="magic-btn mt-20" style="background:#dc3545 !important;">វាយប្រហារ 👾!</button>`; 
-            showModal('ប្រើ Glitch Attack', playerListHtml); 
-            $('#confirm-glitch-btn').onclick = () => { 
-                const selectedTarget = $('input[name="glitch-target"]:checked'); if (!selectedTarget) return alert("សូមជ្រើសរើសគោលដៅ។"); 
-                app.gameState.powerUps.glitch--; $('#powerup-glitch-btn').disabled = true; $('#powerup-glitch-count').textContent = app.gameState.powerUps.glitch; 
-                db.ref(`rooms/${app.currentRoomId}/glitchInfo`).set({ activator: app.currentUser.email, target: selectedTarget.value, qIndex: app.currentQuestionIndex }); 
-                showNotification(`អ្នកបានប្រើ Glitch ទៅលើគោលដៅហើយ!`); $('#modal-overlay').style.display = 'none'; 
-            }; 
-        } 
-        if (type === 'shield' && app.gameState.powerUps.shield > 0) { 
-            app.gameState.powerUps.shield--; $('#powerup-shield-btn').disabled = true; $('#powerup-shield-count').textContent = app.gameState.powerUps.shield; 
-            app.gameState.shieldActive = true; document.body.classList.add('shield-active-body');
-            showNotification('Shield បានបើកដំណើរការ! 🛡️ ការពារការវាយប្រហារបន្ទាប់។'); 
-        } 
-    };
-
-    const showFeedback = (correct, points) => { const fb = $('#game-feedback-overlay'); fb.style.animation = 'none'; fb.offsetHeight; fb.style.animation = null; fb.style.display = 'flex'; if (correct === true) { $('#feedback-text').textContent = 'ត្រឹមត្រូវ!'; $('#feedback-text').style.color = 'var(--correct-green)'; $('#feedback-points').textContent = `+${points}`; } else if (correct === false) { $('#feedback-text').textContent = 'ខុសហើយ!'; $('#feedback-text').style.color = 'var(--incorrect-red)'; $('#feedback-points').textContent = ''; } else { $('#feedback-text').textContent = "អស់ម៉ោង!"; $('#feedback-text').style.color = 'var(--answer-orange)'; $('#feedback-points').textContent = `+${points}`; } };
-    const updateLiveRank = () => { if (!app.currentUser) return; const room = app.rooms.find(r => r.id === app.currentRoomId); if (!room || !room.scores) return; const sortedScores = Object.entries(room.scores).sort((a, b) => b[1] - a[1]); const myRank = sortedScores.findIndex(entry => entry[0] === encodeEmail(app.currentUser.email)) + 1; $('#live-rank-display').textContent = `Rank: ${myRank > 0 ? myRank : '--'}`; $('#player-score').textContent = app.gameState.score || 0; };
-    
-    // --- 11. End Game Routing ---
-    const endGame = () => { 
-        localStorage.removeItem('quiz9b_gameState'); 
-        const room = app.rooms.find(r => r.id === app.currentRoomId);
-        
-        if (room && room.isTest) {
-            showView('testResult');
-            $('#test-final-score').textContent = app.gameState.score;
-            if ($('#test-answer-review-container').innerHTML === '') { 
-                (app.gameState.playerAnswers || []).forEach(ans => { 
-                    $('#test-answer-review-container').innerHTML += `<div class="review-item ${ans.isCor ? 'correct' : 'incorrect'}"><p><strong>${ans.qText}</strong></p><p>ចម្លើយរបស់អ្នក៖ ${ans.sel}</p>${!ans.isCor ? `<p>ចម្លើយត្រឹមត្រូវ៖ ${ans.cor}</p>` : ''}</div>`; 
-                }); 
-            }
-        } else {
-            showView('leaderboard'); 
-            db.ref(`rooms/${app.currentRoomId}`).once('value', s => { if (s.val() && s.val().host === app.currentUser.email) { db.ref(`rooms/${s.val().id}/status`).set('finished'); } }); 
-        }
-    };
-
+    // --- 12. 📋 FIX BUG 2: ពិនិត្យចម្លើយឡើងវិញ នៅផ្ទាំង Ranking (Leaderboard View) ---
     const displayLeaderboard = (room) => {
         if (!room || !room.scores) return; const players = room.players ? Object.values(room.players) : [];
         const sorted = Object.entries(room.scores).map(([encodedEmail, score]) => { const p = players.find(player => player && player.email === decodeEmail(encodedEmail)); return { ...p, score }; }).filter(p => p && p.email).sort((a, b) => b.score - a.score);
-        const podiumTargets = { 0: $('.place-1'), 1: $('.place-2'), 2: $('.place-3') }; Object.values(podiumTargets).forEach(el => el.style.visibility = 'hidden');
-        sorted.slice(0, 3).forEach((p, i) => { const podiumEl = podiumTargets[i]; if (podiumEl) { podiumEl.style.visibility = 'visible'; podiumEl.querySelector('.podium-name').textContent = p.username; podiumEl.querySelector('.podium-score').textContent = `${p.score} ពិន្ទុ`; podiumEl.querySelector('.podium-avatar').src = p.avatarUrl; } });
-        $('#leaderboard-list').innerHTML = ''; sorted.slice(3).forEach((p, i) => { if (p) $('#leaderboard-list').innerHTML += `<li><img src="${p.avatarUrl}" class="leaderboard-list-avatar"><span>#${i + 4} ${p.username}</span><span class="leaderboard-score">${p.score} ពិន្ទុ</span></li>`; });
-        if ($('#answer-review-container').innerHTML === '') { (app.gameState.playerAnswers || []).forEach(ans => { $('#answer-review-container').innerHTML += `<div class="review-item ${ans.isCor ? 'correct' : 'incorrect'}"><p><strong>${ans.qText}</strong></p><p>ចម្លើយរបស់អ្នក៖ ${ans.sel}</p>${!ans.isCor ? `<p>ចម្លើយត្រឹមត្រូវ៖ ${ans.cor}</p>` : ''}</div>`; }); }
+        
+        const pT = { 0: $('.place-1'), 1: $('.place-2'), 2: $('.place-3') }; 
+        Object.values(pT).forEach(el => { if(el) el.style.visibility = 'hidden'; });
+        sorted.slice(0, 3).forEach((p, i) => { const el = pT[i]; if (el) { el.style.visibility = 'visible'; el.querySelector('.podium-name').textContent = p.username; el.querySelector('.podium-score').textContent = `${p.score} ពិន្ទុ`; if(el.querySelector('.podium-avatar')) el.querySelector('.podium-avatar').src = p.avatarUrl; } });
+        
+        const listEl = $('#leaderboard-list'); 
+        if(listEl) { 
+            listEl.innerHTML = ''; 
+            sorted.slice(3).forEach((p, i) => { listEl.innerHTML += `<li><img src="${p.avatarUrl}" class="leaderboard-list-avatar"><span>#${i + 4} ${p.username}</span><span class="leaderboard-score">${p.score} ពិន្ទុ</span></li>`; }); 
+        }
+        
+        // គូរប្រអប់លទ្ធផលពិនិត្យចម្លើយឡើងវិញក្នុងទំព័រ Ranking ឱ្យស្អាតបំផុត
+        const reviewContainer = $('#answer-review-container');
+        if (reviewContainer) {
+            reviewContainer.innerHTML = '<h3 style="margin-top:30px; margin-bottom:20px; color:#cf30aa; text-align:center; width:100%;">📋 ពិនិត្យលទ្ធផលចម្លើយឡើងវិញ</h3>';
+            (app.gameState.playerAnswers || []).forEach((ans, index) => {
+                if(!ans) return; 
+                const isCor = ans.isCor;
+                // សំអាតកូដអត្ថបទវែងៗកុំឱ្យជែករញ៉េរញ៉ៃភ្នែក
+                let shortQText = ans.qText.split('|')[0].substring(0, 120);
+                if(ans.qText.length > 120) shortQText += "...";
+
+                reviewContainer.innerHTML += `
+                    <div class="review-item" style="background: ${isCor ? '#e8f5e9' : '#ffebee'}; border: 1px solid ${isCor ? '#c8e6c9' : '#ffcdd2'}; padding: 18px; margin-bottom: 12px; border-radius: 8px; width:100%; text-align:left; box-sizing:border-box;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; color: #000; line-height:1.5;">សំណួរទី ${index + 1}. ${shortQText}</p>
+                        <p style="margin: 0; color: ${isCor ? '#2e7d32' : '#c62828'}; font-size:0.95em;">
+                            ចម្លើយរបស់អ្នក៖ <b style="background:${isCor?'#c8e6c9':'#ffcdd2'}; padding:2px 6px; border-radius:4px;">${ans.sel}</b> ${isCor ? '✅' : '❌'}
+                        </p>
+                        ${!isCor ? `<p style="margin: 8px 0 0 0; color: #2e7d32; font-size:0.95em;">ចម្លើយត្រឹមត្រូវ៖ <b style="background:#c8e6c9; padding:2px 6px; border-radius:4px;">${ans.cor}</b></p>` : ''}
+                    </div>
+                `;
+            });
+        }
     };
     
-    // --- 12. Event Registration ---
+    // --- 13. Event Listeners ---
     function addEventListeners() {
         document.body.addEventListener('click', e => {
-            const target = e.target;
-            if (target.matches('#show-login-btn') || target.matches('#back-to-login-link')) { e.preventDefault(); showView('login'); }
-            if (target.matches('#go-to-signup-btn')) { e.preventDefault(); showView('signup'); }
-            if (target.matches('.back-to-home-link')) { e.preventDefault(); handleGuestLogin(); }
+            const t = e.target;
+            if (t.matches('#show-login-btn') || t.matches('#back-to-login-link')) { e.preventDefault(); showView('login'); }
+            if (t.matches('#go-to-signup-btn')) { e.preventDefault(); showView('signup'); }
+            if (t.matches('.back-to-home-link')) { e.preventDefault(); handleGuestLogin(); }
+            if (t.matches('#logout-btn')) handleLogout();
+            if (t.matches('#admin-panel-btn')) { showView('admin'); updateAdminUI(); }
+            if (t.matches('#login-btn')) handleLogin();
+            if (t.matches('#back-to-home-admin-btn') || t.matches('#back-to-home-from-leaderboard-btn') || t.matches('#back-to-home-from-test-btn')) { document.body.style.backgroundColor = ''; goHome(); }
+            if (t.matches('#signup-btn')) handleSignup();
             
-            if (target.matches('#logout-btn')) handleLogout();
-            if (target.matches('#admin-panel-btn')) { showView('admin'); updateAdminUI(); }
-            if (target.matches('#login-btn')) handleLogin();
-            if (target.matches('#back-to-home-admin-btn') || target.matches('#back-to-home-from-leaderboard-btn') || target.matches('#back-to-home-from-test-btn')) goHome();
-            if (target.matches('#signup-btn')) handleSignup();
-            
-            if (target.matches('#add-question-btn')) {
-                const container = $('#questions-container');
-                const template = $('#question-template').content.cloneNode(true);
-                const idx = container.children.length;
-                template.querySelectorAll('input[type="radio"]').forEach(r => r.name = `correct_answer_${idx}`);
-                container.appendChild(template);
-            }
-            if (target.matches('#save-quiz-btn')) handleSaveQuiz();
-            if (target.matches('#bot-text-create-btn')) handleTextBotCreate();
-            
-            // 🚀 BUG FIXED: Re-added the AI Chat Send Button listener!
-            if (target.matches('#admin-chat-send-btn') || target.closest('#admin-chat-send-btn')) {
-                handleAdminChatSend();
-            }
-            
-            if (target.closest('.toggle-admin-btn')) {
-                const userEmail = target.closest('.toggle-admin-btn').dataset.email;
-                const user = app.users.find(u => u.email === userEmail);
-                if(user) { db.ref('users/' + encodeEmail(userEmail) + '/isAdmin').set(!user.isAdmin); }
-            }
-
-            if (target.closest('.ban-user-btn')) { const userEmail = target.closest('.ban-user-btn').dataset.userEmail; const user = app.users.find(u => u.email === userEmail); if(user) { db.ref('users/' + encodeEmail(userEmail) + '/banned').set(!user.banned); } }
-            
-            if (target.closest('.host-quiz-btn')) { 
-                const quizId = target.closest('.host-quiz-btn').dataset.quizId; 
+            if (t.closest('.host-quiz-btn') || t.closest('.host-test-btn')) { 
+                const quizId = (t.closest('.host-quiz-btn') || t.closest('.host-test-btn')).dataset.quizId; 
                 const room = { id: `room_${Date.now()}`, quizId, host: app.currentUser.email, status: 'waiting', isTest: false, players: {}, scores: {} }; 
                 db.ref('rooms/' + room.id).set(room); 
                 const joinLink = `${window.location.origin}${window.location.pathname}?room=${room.id}`; 
-                showModal("បន្ទប់ត្រូវបានបង្កើត!", `<div class="link-container" style="display:flex;gap:10px;"><input id="room-link-input" class="input" type="text" value="${joinLink}" style="flex:1;" readonly><button id="copy-link-btn" class="magic-btn" style="width:auto;margin:0;padding:0 20px !important;">ចម្លង</button></div><button id='modal-ok-btn' class="magic-btn mt-20">ចូលរួមបន្ទប់ឥឡូវនេះ</button>`, () => joinRoom(room.id)); 
+                showModal("បន្ទប់ប្រឡងត្រូវបានបង្កើត!", `<div class="link-container" style="display:flex;gap:10px;"><input id="room-link-input" class="input" type="text" value="${joinLink}" style="flex:1;" readonly><button id="copy-link-btn" class="magic-btn" style="width:auto;margin:0;padding:0 20px !important;">ចម្លង</button></div><button id='modal-ok-btn' class="magic-btn mt-20">ចូលបន្ទប់គ្រប់គ្រង</button>`, () => joinRoom(room.id)); 
             }
             
-            if (target.closest('.host-test-btn')) { 
-                const quizId = target.closest('.host-test-btn').dataset.quizId; 
-                const room = { id: `test_${Date.now()}`, quizId, host: app.currentUser.email, status: 'active', isTest: true, players: {}, scores: {} }; 
-                db.ref('rooms/' + room.id).set(room); 
-                const joinLink = `${window.location.origin}${window.location.pathname}?room=${room.id}`; 
-                showModal("ការប្រឡងបានដាក់ឲ្យដំណើរការ!", `<p style="margin-bottom:10px; color:#cf30aa;">ផ្ញើ Link នេះឲ្យសិស្សដើម្បីប្រឡង (បើក 24 ម៉ោង):</p><div class="link-container" style="display:flex;gap:10px;"><input id="room-link-input" class="input" type="text" value="${joinLink}" style="flex:1;" readonly><button id="copy-link-btn" class="magic-btn" style="width:auto;margin:0;padding:0 20px !important;">ចម្លង</button></div><button id='modal-ok-btn' class="magic-btn mt-20">ចូលរួមប្រឡង</button>`, () => joinRoom(room.id)); 
+            if (t.matches('#start-game-btn')) {
+                app.currentQuiz = app.quizzes.find(q => q.id === app.rooms.find(r=>r.id===app.currentRoomId).quizId);
+                startDigitalExam(); 
+            }
+            
+            if (t.matches('#close-room-btn')) { if (confirm('តើអ្នកពិតជាចង់បិទបន្ទប់?')) { db.ref('rooms/' + app.currentRoomId).remove(); goHome(); } }
+            if (t.matches('#submit-exam-btn')) submitDigitalExam();
+            
+            // 💥 FIX BUG 1: ចុចប៊ូតុងនេះ ទើបបិទក្រដាសសចោល រួចបើកផ្ទាំង Ranking ស្អាតបាត ១០០%
+            if (t.matches('#goto-leaderboard-btn')) {
+                document.body.style.backgroundColor = ''; // Reset BG Gray
+                showView('leaderboard'); 
+                displayLeaderboard(app.rooms.find(r => r.id === app.currentRoomId));
             }
 
-            if (target.closest('.delete-quiz-btn')) { if (confirm('តើអ្នកពិតជាចង់លុបកម្រងសំណួរនេះមែនទេ?')) { const quizId = target.closest('.delete-quiz-btn').dataset.quizId; db.ref('quizzes/' + quizId).remove(); } }
-            if (target.closest('.remove-question-btn')) target.closest('.question-editor').remove();
-            if (target.matches('#lobby-copy-link-btn')) { const linkInput = $('#lobby-join-link-input'); linkInput.select(); document.execCommand('copy'); showNotification('បានចម្លង Link!'); }
-            if (target.matches('#copy-link-btn')) { const linkInput = $('#room-link-input'); linkInput.select(); document.execCommand('copy'); showNotification('បានចម្លង Link!'); }
-            
-            if (target.matches('#start-game-btn')) handleStartGameClick();
-            if (target.matches('#start-test-btn')) startGame();
-            
-            if (target.matches('#close-room-btn')) { if (confirm('តើអ្នកពិតជាចង់បិទបន្ទប់?')) { db.ref('rooms/' + app.currentRoomId).remove(); goHome(); } }
-            if (target.matches('#powerup-glitch-btn') || target.closest('#powerup-glitch-btn')) usePowerUp('glitch');
-            if (target.matches('#powerup-shield-btn') || target.closest('#powerup-shield-btn')) usePowerUp('shield');
-            const answerBtn = target.closest('.answer-btn'); if (answerBtn && !answerBtn.disabled) handleAnswer({ currentTarget: answerBtn });
+            if (t.matches('#zoom-in-btn')) { app.currentZoom += 2; $('#exam-paper-content').style.fontSize = app.currentZoom + 'px'; }
+            if (t.matches('#zoom-out-btn')) { app.currentZoom = Math.max(12, app.currentZoom - 2); $('#exam-paper-content').style.fontSize = app.currentZoom + 'px'; }
+            if (t.matches('#save-quiz-btn')) handleSaveQuiz();
         });
     }
-
     init();
 });
