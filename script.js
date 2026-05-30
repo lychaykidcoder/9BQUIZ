@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
         users: [], quizzes: [], rooms: [], currentUser: null, currentRoomId: null,
         currentQuiz: null, gameState: {}, currentZoom: window.innerWidth <= 768 ? 12 : 14,
         ownerEmail: "lychayzooba@gmail.com", 
-        aiConversationHistory: `System: You are an expert Cambodian Teacher. OUTPUT EXACT JSON ONLY. MUST have sections.`
+        aiConversationHistory: `System: You are an expert Cambodian Teacher. OUTPUT ONLY JSON.`
     };
     let dataLoaded = false;
     window.latestAIQuizData = null; 
@@ -97,12 +97,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const getKhmerDate = () => {
         const months = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
         const khmerNumbers = ['០', '១', '២', '៣', '៤', '៥', '៦', '៧', '៨', '៩'];
-        const toKhmerNum = (num) => String(num).split('').map(n => khmerNumbers[parseInt(n)]).join('');
+        const toKhmerNum = (num) => String(num).split('').map(n => khmerNumbers[parseInt(n)] || n).join('');
         const d = new Date();
         const day = toKhmerNum(d.getDate().toString().padStart(2, '0'));
         const month = months[d.getMonth()];
         const year = toKhmerNum(d.getFullYear());
         return `${day} ${month} ${year}`;
+    };
+    
+    const toKhmerNumGlobal = (num) => {
+        const khmerNumbers = ['០', '១', '២', '៣', '៤', '៥', '៦', '៧', '៨', '៩'];
+        return String(num).split('').map(n => khmerNumbers[parseInt(n)] || n).join('');
+    };
+
+    const getKhmerChar = (index) => {
+        const chars = ['ក','ខ','គ','ឃ','ង','ច','ឆ','ជ','ឈ','ញ','ដ','ឋ','ឌ','ឍ','ណ','ត','ថ','ទ','ធ','ន','ប','ផ','ព','ភ','ម','យ','រ','ល','វ','ស','ហ','ឡ','អ'];
+        return chars[index] || String.fromCharCode(65+index);
     };
 
     // --- 4. Main Init ---
@@ -206,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } 
     };
 
-    // --- 7. AI BOT Logic ---
+    // --- 7. AI BOT Logic (THE ULTIMATE PARSER) ---
     const appendToChat = (role, text) => { 
         const chatBox = $('#admin-chat-history'); 
         if(!chatBox) return; 
@@ -228,33 +238,177 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) { alert('បរាជ័យក្នុងការរក្សាទុក: ' + err.message); }
     };
 
+    // 💥 1. PARSER ដ៏រឹងមាំ (FIXED MATCHING LOGIC)
     const processAIResponseForChat = (aiResultText) => {
-        const jsonMatch = aiResultText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            try {
-                let cleanJson = jsonMatch[0].replace(/```json|```/g, "").trim();
-                const aiResult = JSON.parse(cleanJson);
-                if (aiResult && (aiResult.sections || aiResult.questions)) {
-                    window.latestAIQuizData = aiResult; 
-                    const chatBox = $('#admin-chat-history');
-                    if(chatBox) {
-                        const msgDiv = document.createElement('div'); msgDiv.className = `chat-msg bot-msg`;
-                        msgDiv.innerHTML = `<div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបង្កើតវិញ្ញាសារួចរាល់ហើយ!</div><button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ រក្សាទុកវិញ្ញាសា</button>`;
-                        chatBox.appendChild(msgDiv); chatBox.scrollTop = chatBox.scrollHeight;
+        try {
+            let rawString = typeof aiResultText === 'object' ? (aiResultText?.message?.content || aiResultText?.text || JSON.stringify(aiResultText)) : String(aiResultText);
+            
+            let jsonString = rawString;
+            const firstBrace = rawString.indexOf('{');
+            const lastBrace = rawString.lastIndexOf('}');
+            
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                jsonString = rawString.substring(firstBrace, lastBrace + 1);
+            }
+
+            let cleanJson = jsonString.trim();
+            let aiResult = JSON.parse(cleanJson);
+
+            let finalSections = [];
+            let secCounter = 1;
+            const toRoman = (num) => ["I", "II", "III", "IV", "V"][num-1] || String(num);
+
+            if (aiResult.sections && Array.isArray(aiResult.sections)) {
+                finalSections = aiResult.sections;
+            } else {
+                const findKey = (obj, keyName) => {
+                    if (!obj || typeof obj !== 'object') return null;
+                    if (obj[keyName]) return obj[keyName];
+                    for (let k in obj) {
+                        let res = findKey(obj[k], keyName);
+                        if (res) return res;
                     }
-                    return; 
+                    return null;
+                };
+
+                let mcq = findKey(aiResult, 'multiple_choice_section') || findKey(aiResult, 'multiple_choice') || findKey(aiResult, 'questions');
+                let fib = findKey(aiResult, 'fill_in_the_blanks_section') || findKey(aiResult, 'fill_in_the_blank');
+                let matching = findKey(aiResult, 'matching_section') || findKey(aiResult, 'matching');
+
+                if (mcq && Array.isArray(mcq)) {
+                    finalSections.push({
+                        section_id: toRoman(secCounter++),
+                        section_title: "សំណួរជ្រើសរើស",
+                        question_type: "multiple_choice",
+                        questions: mcq.map((q, idx) => ({
+                            question_number: q.question_number || q.id || (idx + 1),
+                            question_text: q.question_text || q.question || q.text || `សំណួរ ${idx+1}`,
+                            options: q.options ? (Array.isArray(q.options) ? q.options : Object.entries(q.options).map(([k,v]) => ({key:k, text:v}))) : [],
+                            correct_answer: q.correct_answer || ""
+                        }))
+                    });
                 }
-            } catch (e) { console.warn("JSON parse error", e); }
+
+                if (fib && Array.isArray(fib)) {
+                    finalSections.push({
+                        section_id: toRoman(secCounter++),
+                        section_title: "សំណួរបំពេញចន្លោះ",
+                        question_type: "fill_in_the_blank",
+                        questions: fib.map((q, idx) => ({
+                            question_number: q.paragraph_id || q.id || (idx + 1),
+                            question_text: q.text || q.question_text || "",
+                            correct_answer: q.answers ? (typeof q.answers === 'object' ? Object.values(q.answers).join(",") : q.answers) : ""
+                        }))
+                    });
+                }
+
+                if (matching) {
+                    let colA = matching.left_side || matching.column_A || matching.left || [];
+                    let colB = matching.right_side || matching.column_B || matching.right || [];
+                    let cMatch = matching.correct_matches || matching.matches || [];
+
+                    finalSections.push({
+                        section_id: toRoman(secCounter++),
+                        section_title: "សំណួរផ្គូផ្គង",
+                        question_type: "matching",
+                        // 💥 ចាប់យក Key និង Text បានយ៉ាងសុក្រិត ១០០% ទោះជា AI ចេញទម្រង់ណាក៏ដោយ
+                        column_A: Array.isArray(colA) ? colA.map((item, idx) => {
+                            if (typeof item === 'object' && item.key && item.text) {
+                                return { key: toKhmerNumGlobal(item.key), text: item.text };
+                            }
+                            let text = typeof item === 'string' ? item : (item.text || JSON.stringify(item));
+                            let match = text.match(/^([០-៩0-9]+)[\.\)\s]+(.*)/);
+                            return match ? { key: toKhmerNumGlobal(match[1]), text: match[2].trim() } : { key: toKhmerNumGlobal(idx+1), text: text.trim() };
+                        }) : [],
+                        column_B: Array.isArray(colB) ? colB.map((item, idx) => {
+                            if (typeof item === 'object' && item.key && item.text) {
+                                return { key: item.key, text: item.text };
+                            }
+                            let text = typeof item === 'string' ? item : (item.text || JSON.stringify(item));
+                            let match = text.match(/^([ក-អA-Za-z]+)[\.\)\s]+(.*)/);
+                            return match ? { key: match[1], text: match[2].trim() } : { key: getKhmerChar(idx), text: text.trim() };
+                        }) : [],
+                        correct_matches: Array.isArray(cMatch) ? cMatch.map(m => {
+                            let kA = m.left_index || m.left || m.column_A_key || m.id;
+                            let kB = m.right_letter || m.right || m.column_B_key || m.key;
+                            return {
+                                column_A_key: kA ? toKhmerNumGlobal(String(kA)) : "", 
+                                column_B_key: kB ? String(kB) : ""
+                            };
+                        }).filter(m => m.column_A_key && m.column_B_key) : []
+                    });
+                }
+            }
+
+            if (finalSections.length > 0) {
+                window.latestAIQuizData = { sections: finalSections };
+                const chatBox = $('#admin-chat-history');
+                if(chatBox) {
+                    const msgDiv = document.createElement('div'); msgDiv.className = `chat-msg bot-msg`;
+                    msgDiv.innerHTML = `<div style="margin-bottom:10px; color:#fff;">✅ ខ្ញុំបានបំប្លែងវិញ្ញាសាពី AI រួចរាល់ហើយ!</div><button class="magic-btn small-btn" onclick="applyChatQuiz()" style="width:100%; padding:10px !important; background:#00b894 !important;">✅ រក្សាទុកវិញ្ញាសា</button>`;
+                    chatBox.appendChild(msgDiv); chatBox.scrollTop = chatBox.scrollHeight;
+                }
+            } else {
+                throw new Error("រកមិនឃើញទម្រង់សំណួរក្នុង JSON ទេ។");
+            }
+        } catch (e) {
+            console.error("🚨 JSON Parsing Failed:", e.message);
+            let fallbackText = typeof aiResultText === 'string' ? aiResultText : JSON.stringify(aiResultText);
+            appendToChat('bot', `[កំហុសអានទិន្នន័យ: ${e.message}]\n\n` + fallbackText.trim());
         }
-        appendToChat('bot', aiResultText.replace(/```json|```/g, "").trim());
     };
 
+    // 💥 2. PROMPT ដ៏តឹងរ៉ឹង 
     const handleTextBotCreate = async () => {
         const textInput = $('#bot-text-input').value.trim(); if (!textInput) return alert("សូមសរសេរប្រធានបទ។");
         $('#bot-text-create-btn').innerHTML = "កំពុងដំណើរការ..."; $('#bot-text-create-btn').disabled = true;
-        let PROMPT = `Topic: "${textInput}". Generate a full exam in Khmer. Output ONLY valid JSON with 'sections'.`;
+        
+        let PROMPT = `Topic: "${textInput}". Generate a full exam in Khmer. 
+CRITICAL: You MUST output ONLY valid JSON matching EXACTLY this structure below. Do not invent new fields.
+{
+  "sections": [
+    {
+      "section_id": "I",
+      "section_title": "សំណួរជ្រើសរើស",
+      "question_type": "multiple_choice",
+      "questions": [
+        {
+          "question_number": 1,
+          "question_text": "សំណួរ...",
+          "options": [ {"key": "ក", "text": "ចម្លើយ១"}, {"key": "ខ", "text": "ចម្លើយ២"} ],
+          "correct_answer": "ក"
+        }
+      ]
+    },
+    {
+      "section_id": "II",
+      "section_title": "សំណួរបំពេញចន្លោះ",
+      "question_type": "fill_in_the_blank",
+      "questions": [
+        {
+          "question_number": 1,
+          "question_text": "ខ្មែរយើងប្រើ [blank_1] សម្រាប់សំពះ ហើយបរទេសប្រើ [blank_2]។",
+          "correct_answer": "ដៃ,ការចាប់ដៃ"
+        }
+      ]
+    },
+    {
+      "section_id": "III",
+      "section_title": "សំណួរផ្គូផ្គង",
+      "question_type": "matching",
+      "column_A": [ {"key": "១", "text": "ឆ្កែ"} ],
+      "column_B": [ {"key": "ក", "text": "សត្វចិញ្ចើម"} ],
+      "correct_matches": [ {"column_A_key": "១", "column_B_key": "ក"} ]
+    }
+  ]
+}
+OUTPUT ONLY JSON. NO MARKDOWN. NO CONVERSATION.`;
+        
         appendToChat('user', `[ប្រធានបទ: ${textInput}] សូមបង្កើតវិញ្ញាសាពេញលេញ`);
-        try { const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3-flash-preview' }); processAIResponseForChat(typeof response === 'object' ? (response?.message?.content || response?.text) : response); } 
+        try { 
+            const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3-flash-preview' }); 
+            processAIResponseForChat(typeof response === 'object' ? (response?.message?.content || response?.text) : response); 
+        } 
         catch (error) { appendToChat('bot', `Error: ${error.message}`); } 
         finally { $('#bot-text-create-btn').innerHTML = "✨ បង្កើតពីអត្ថបទ"; $('#bot-text-create-btn').disabled = false; }
     };
@@ -367,19 +521,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 .section-title { font-weight: bold; margin: 20px 0 10px 0; font-size: 1.05em; text-decoration: underline;}
                 .q-container { margin-bottom: 15px; }
-                .q-text { font-weight: bold; margin-bottom: 5px; word-wrap: break-word; overflow-wrap: break-word;}
+                .q-text { font-weight: bold; margin-bottom: 5px; word-wrap: break-word; overflow-wrap: break-word; line-height: 2.2;}
                 
                 .mcq-options-container { display: flex; flex-wrap: wrap; gap: 15px; padding-left: 15px; }
                 .mcq-item { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; color: black !important; white-space: nowrap; }
                 .paper-checkbox { appearance: none; width: 16px; height: 16px; border: 1.5px solid #000; border-radius: 2px; position: relative; cursor: pointer; background: #fff; margin-top: 1px;}
                 .paper-checkbox:checked::after { content: "✔"; position: absolute; top: -5px; left: 1px; color: #000; font-size: 16px; font-weight: bold; }
                 
-                /* EXACT MATCHING TABLE */
                 .matching-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em;}
                 .matching-table th, .matching-table td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word;}
                 .matching-table th { background: #f0f0f0; text-align: center; font-weight: bold;}
                 
-                /* 💥 PERFECT INPUTS - Clear, transparent, NO ZEROS, compact! */
                 .match-input { 
                     width: 30px !important; text-align: center; 
                     border: none !important; border-bottom: 2px dotted #000 !important; 
@@ -390,7 +542,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     border: none !important; border-bottom: 2px dotted #000 !important; 
                     outline: none !important; background: transparent !important; 
                     font-size: 1em; color: blue !important; 
-                    padding: 0 2px !important; min-width: 60px; width: auto; text-align: center; font-weight: bold; box-shadow: none !important; border-radius: 0 !important;
+                    padding: 0 5px !important; min-width: 60px; width: auto; text-align: center; font-weight: bold; box-shadow: none !important; border-radius: 0 !important; margin: 0 5px;
                 }
                 
                 .zoom-panel { position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex; gap: 10px; }
@@ -445,11 +597,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 html += `</table>`;
                 
-                // Construct mapping string securely
                 let correctStr = "";
-                if (sec.correct_answer) { correctStr = sec.correct_answer; } 
-                else if (sec.formatted_answers_C) { correctStr = sec.formatted_answers_C.join(', '); } 
-                else if (sec.correct_matches) { correctStr = sec.correct_matches.map(m => `${m.column_A_key}-${m.column_B_key}`).join(', '); }
+                if (sec.correct_matches) { correctStr = sec.correct_matches.map(m => `${m.column_A_key}-${m.column_B_key}`).join(','); }
                 
                 html += `<input type="hidden" id="correct_match_${globalQIndex}" value="${correctStr}">`;
                 html += `</div>`;
@@ -460,27 +609,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     html += `<div class="q-container" data-globalq="${globalQIndex}" data-type="${sec.question_type}">`;
                     
                     if (sec.question_type === 'fill_in_the_blank') {
-                        let text = q.question_text || q.question || q.text;
-                        let parts = text.split(/\.{4,}|\_+/);
-                        let formattedQ = `${q.question_number ? q.question_number+'. ' : ''}`;
-                        for(let p=0; p<parts.length; p++) {
-                            formattedQ += parts[p];
-                            if(p < parts.length - 1) formattedQ += `<input type="text" class="actual-fill-input" name="fill_${globalQIndex}" autocomplete="off">`;
-                        }
-                        html += `<div class="q-text">${formattedQ}</div>`;
-                        let correctAns = q.correct_answer || (q.answers && q.answers.length > 0 ? q.answers[q.correct] : "");
+                        let text = q.question_text || q.question || q.text || "";
+                        let formattedQ = text.replace(/\[blank_\d+\]|\.{4,}|\_+/g, `<input type="text" class="actual-fill-input" autocomplete="off">`);
+                        html += `<div class="q-text">${q.question_number ? q.question_number+'. ' : ''}${formattedQ}</div>`;
+                        let correctAns = q.correct_answer || "";
                         html += `<input type="hidden" id="correct_fill_${globalQIndex}" value="${correctAns}">`;
                     } 
                     else {
                         html += `<div class="q-text">${q.question_number ? q.question_number+'. ' : ''}${q.question_text || q.question || q.text}</div>`;
                         html += `<div class="mcq-options-container">`;
-                        (q.options || q.answers || []).forEach((opt, j) => {
+                        (q.options || []).forEach((opt, j) => {
                             let optKey = opt.key || (j===0?'ក':j===1?'ខ':j===2?'គ':'ឃ');
                             let optText = opt.text || opt;
                             html += `<label class="mcq-item"><input type="radio" name="q_${globalQIndex}" value="${optKey}" class="paper-checkbox"> <span>${optKey}. ${optText}</span></label>`;
                         });
                         html += `</div>`;
-                        let correctAns = q.correct_answer || (q.answers ? String.fromCharCode(2017+q.correct) : ""); 
+                        let correctAns = q.correct_answer || ""; 
                         html += `<input type="hidden" id="correct_mcq_${globalQIndex}" value="${correctAns}">`;
                     }
                     html += `</div>`;
@@ -529,15 +673,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 correctStr = $(`#correct_match_${i}`).value;
                 let correctMapping = {};
                 
-                // 💥 BULLETPROOF PARSER: Only gets valid letters and numbers
                 if (correctStr) {
                     let mappingList = correctStr.split(',');
                     mappingList.forEach(m => {
-                        let letter = m.match(/[ក-អA-Za-z]/);
-                        let num = m.match(/[0-9១-៩]/);
-                        if(letter && num) {
-                            correctMapping[letter[0]] = num[0];
-                        }
+                        let parts = m.split('-');
+                        if(parts.length >= 2) correctMapping[parts[0].trim()] = parts[1].trim();
                     });
                 }
                 
@@ -546,7 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 inputs.forEach(inp => {
                     let rNum = inp.dataset.row;
                     let uVal = inp.value.trim();
-                    let cVal = correctMapping[rNum] || ""; // Will be "" if not found
+                    let cVal = correctMapping[rNum] || "";
                     
                     userSelStr += `${rNum}➔${uVal || '?'} `;
                     inp.disabled = true;
@@ -560,7 +700,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         allMatchCorrect = false;
                         inp.style.color = '#b71c1c'; inp.style.borderBottomColor = '#b71c1c'; inp.style.textDecoration = 'line-through';
                         
-                        // 💥 PREVENT RENDERING 0 OR EMPTY
                         let safeCVal = cVal || "អត់ចម្លើយ";
                         let corrSpan = document.createElement('span'); 
                         corrSpan.innerHTML = ` <b style="color:#1b5e20; font-size:1em; text-decoration:none;">(${safeCVal})</b>`;
@@ -573,21 +712,32 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (qType === 'fill_in_the_blank') {
                 correctStr = $(`#correct_fill_${i}`).value;
                 const inputs = container.querySelectorAll('.actual-fill-input');
-                let combinedUserText = "";
-                inputs.forEach(inp => { combinedUserText += inp.value.trim() + " "; inp.disabled = true; });
-                userSel = combinedUserText.trim();
+                let correctArr = correctStr.split(',');
                 
-                isCorrect = smartKhmerCompare(userSel, correctStr);
-                inputs.forEach(inp => {
-                    inp.style.color = isCorrect ? '#1b5e20' : '#b71c1c';
-                    inp.style.borderBottomColor = isCorrect ? '#1b5e20' : '#b71c1c';
-                    if(!isCorrect) inp.style.textDecoration = 'line-through';
+                let allFillCorrect = true;
+                let combinedUserText = "";
+                
+                inputs.forEach((inp, idx) => { 
+                    let uVal = inp.value.trim();
+                    combinedUserText += uVal + " "; 
+                    inp.disabled = true; 
+                    
+                    let cVal = correctArr[idx] ? correctArr[idx].trim() : "";
+                    let isMatch = smartKhmerCompare(uVal, cVal);
+                    
+                    inp.style.color = isMatch ? '#1b5e20' : '#b71c1c';
+                    inp.style.borderBottomColor = isMatch ? '#1b5e20' : '#b71c1c';
+                    if(!isMatch) {
+                        allFillCorrect = false;
+                        inp.style.textDecoration = 'line-through';
+                        let corrSpan = document.createElement('span'); 
+                        corrSpan.innerHTML = ` ➔<b style="color:#1b5e20; font-size:0.9em; text-decoration:none;">${cVal}</b>`;
+                        inp.parentNode.insertBefore(corrSpan, inp.nextSibling);
+                    }
                 });
+                isCorrect = allFillCorrect && inputs.length > 0;
+                userSel = combinedUserText.trim();
                 if(isCorrect) score += 1000;
-                else if(inputs.length > 0) {
-                    let corrSpan = document.createElement('span'); corrSpan.innerHTML = ` <br>➔ <b style="color:#1b5e20; background:#e8f5e9; padding:0 4px; font-size:0.9em; text-decoration:none;">${correctStr}</b>`;
-                    inputs[inputs.length-1].parentNode.insertBefore(corrSpan, inputs[inputs.length-1].nextSibling);
-                }
 
             } else {
                 correctStr = $(`#correct_mcq_${i}`).value;
@@ -622,7 +772,6 @@ document.addEventListener('DOMContentLoaded', () => {
         sorted.slice(0, 3).forEach((p, i) => { const el = pT[i]; if (el) { el.style.visibility = 'visible'; el.querySelector('.podium-name').textContent = p.username; el.querySelector('.podium-score').textContent = `${p.score} ពិន្ទុ`; if(el.querySelector('.podium-avatar')) el.querySelector('.podium-avatar').src = p.avatarUrl; } });
         const listEl = $('#leaderboard-list'); if(listEl) { listEl.innerHTML = ''; sorted.slice(3).forEach((p, i) => { listEl.innerHTML += `<li><img src="${p.avatarUrl}" class="leaderboard-list-avatar"><span>#${i + 4} ${p.username}</span><span class="leaderboard-score">${p.score} ពិន្ទុ</span></li>`; }); }
         
-        // 💥 Force Inject the Review Container Properly so it always appears perfectly stacked below Winners
         let reviewContainer = $('#answer-review-container');
         if (reviewContainer) reviewContainer.remove(); 
         
