@@ -61,7 +61,10 @@ document.addEventListener('DOMContentLoaded', () => {
         users: [], quizzes: [], rooms: [], currentUser: null, currentRoomId: null,
         currentQuiz: null, gameState: {}, currentZoom: window.innerWidth <= 768 ? 12 : 14,
         ownerEmail: "lychayzooba@gmail.com", 
-        aiConversationHistory: `System: You are an expert Cambodian Teacher. OUTPUT ONLY JSON.`
+        // 💥 UPGRADE: Strictly enforced JSON and chemical formula formatting
+        aiConversationHistory: `System: You are an expert Cambodian Teacher. CRITICAL RULES: 
+        1. OUTPUT ONLY VALID JSON. No markdown formatting, no conversational text before or after the JSON. 
+        2. Automatically format all math and chemical equations perfectly using standard Unicode characters (e.g., use correct subscripts and arrows). For example, convert raw text like "na + o2 /rightarrrow na2o" into "Na + O₂ ➔ Na₂O".`
     };
     let dataLoaded = false;
     window.latestAIQuizData = null; 
@@ -406,7 +409,8 @@ OUTPUT ONLY JSON. NO MARKDOWN. NO CONVERSATION.`;
         
         appendToChat('user', `[ប្រធានបទ: ${textInput}] សូមបង្កើតវិញ្ញាសាពេញលេញ`);
         try { 
-            const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3-flash-preview' }); 
+            // 💥 UPGRADE: model changed to 'gemini-3.1-pro-preview'
+            const response = await puter.ai.chat(app.aiConversationHistory + "\nUser: " + PROMPT, { model: 'gemini-3.1-pro-preview' }); 
             processAIResponseForChat(typeof response === 'object' ? (response?.message?.content || response?.text) : response); 
         } 
         catch (error) { appendToChat('bot', `Error: ${error.message}`); } 
@@ -419,7 +423,8 @@ OUTPUT ONLY JSON. NO MARKDOWN. NO CONVERSATION.`;
         appendToChat('user', msg); inputEl.value = '';
         const sendBtn = $('#admin-chat-send-btn'); if (sendBtn) sendBtn.disabled = true;
         try {
-            const response = await puter.ai.chat(app.aiConversationHistory + `\nUser: ${msg}\nAssistant: `, { model: 'gemini-3-flash-preview' });
+            // 💥 UPGRADE: model changed to 'gemini-3.1-pro-preview'
+            const response = await puter.ai.chat(app.aiConversationHistory + `\nUser: ${msg}\nAssistant: `, { model: 'gemini-3.1-pro-preview' });
             processAIResponseForChat(typeof response === 'object' ? (response?.message?.content || response?.text) : response);
         } catch (err) { appendToChat('bot', `Error: ${err.message}`); } 
         finally { if (sendBtn) sendBtn.disabled = false; }
